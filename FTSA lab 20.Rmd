@@ -1,0 +1,415 @@
+---
+title: "FTSA"
+author: "JUDETADEUS MASIKA"
+date: "2023-07-24"
+output: html_document
+---
+QUESTION ONE.
+```{r}
+#Loading the required packages
+library(tidyverse)
+library(quantmod)
+library(PerformanceAnalytics)
+#Importing the data set
+stock.price <-read.csv("C:/Users/Baha/Downloads/HistoricalPrices.csv")
+#Selecting the Close stock price column.
+stock.price <-stock.price[,-c(2,3,4)]
+#Calculate log returns
+log_returns <- diff(log(stock.price$Close))
+#Create a time series plot for the stock
+plot.ts(log_returns, main = "Time series plot of Stock S&P500")
+```
+Conclusion.
+The time series plot of log returns of the stock is stationary. This implies that the mean of log returns is not different from zero.
+```{r}
+#summary statistics of the stock log returns
+stacs <- data.frame(
+  "Close_Stock_price" = c(mean(log_returns),sd(log_returns),skewness(log_returns),kurtosis(log_returns, type = "excess"),
+         min(log_returns),max(log_returns)))
+row.names(stacs) <-c("mean","standard deviation","skewness","kurtosis","minimum","maximum")
+print(stacs)
+```
+Conclusion.
+The mean of log returns is zero, implying that the log returns are stationary.
+Further, from the statistics, the skewness is 0.51(2.dp), and for Normal Distribution Skewness is always zero. This is evident that the log returns are not normally distributed. 
+Also, there is presence of heavy tails, this is concluded from the calculated excess kurtosis. To deal with such data, one may use Frechet Distribution or Student-t distribution.
+
+```{r}
+#Testing for the presence of the mean effect in the log returns
+#perform a two-sided t-test for log returns of the stock
+t.test <-t.test(log_returns, mu = 0)
+#extract the p-values for each t.test
+p.value <-c(t.test$p.value)
+print(p.value)
+```
+Conclusion.
+Since the p-value is greater than 0.05, we fail to reject the null hypothesis at the 5% significance level. This means that there is not enough evidence to conclude that the mean log return of the close stock is statistically different from zero. However, it is important to note that the absence of evidence for a difference does not necessarily imply evidence of absence of a difference. Therefore, further research may be needed to draw a more definitive conclusion.
+```{r}
+library(tseries)
+test_result <-jarque.bera.test(stock.price$Close)
+test_statistic <- test_result$statistic
+p.value <-test_result$p.value
+#print the results
+cat("Jarque-Bera test statistic:", test_statistic, "\n")
+cat("p.value:", p.value, "\n")
+#checking the significance at 5% level
+if(p.value<0.05){
+  cat("Reject the null hypothesis: the log returns are not normally distributed\n")
+} else{
+  cat("Do not reject the null hypothesis: the log returns are normally distributed\n")
+}
+```
+Conclusion.
+This further proves that the log returns are not normally distributed using the Jarque Bera test. The p-value is less than 5% level of significance and there is sufficient evidence to reject the null hypothesis that says the log returns are normally distributed. Thus, the log returns are not normally distributed as proven earlier using the summary statistics, the skewness was 0.51, not different from zero.
+```{r}
+#Testing for the presence of ARCH effects.
+#We use the ARCH-LM test
+library(forecast)
+arima <-Arima(log_returns, order = c(2,0,2))
+residuals_stock <-residuals(arima)
+library(FinTS)
+arch.effect <-ArchTest(residuals_stock);arch.effect
+```
+Conclusion.
+From the test, we reject the null hypothesis since the p-value of the log returns is less than 5% level of significance, hence the log returns have ARCH EFFECTS.
+```{r}
+#Testing for heavy tails, we perform the Anderson Darling Test
+library(nortest)
+ad.test(residuals_stock)
+```
+Conclusion.
+Testing at 5% level of significance with the hypotheses; Null hypothesis the residuals follow a normal distribution against the alternative hypothesis the residuals do not follow a normal distribution, we reject the null hypothesis since the p-value is less than 5% level of significance. Thus the residuals are not normally distributed.
+
+```{r}
+#Testing for serial correlation of the log returns of stock
+#We perform the Ljung Box Test on the log returns
+Box_test <-Box.test(log_returns, lag = 10, type = "Ljung-Box")
+print(Box_test)
+```
+Conclusion.
+Testing at 5% level of significance and with the hypotheses such that the null hypothesis is that there is no serial correlation, we reject the null hypothesis since the p-value is less than 5% level of significance and thus the log returns are serially correlated.
+```{r}
+#Fitting the ARCH(1) model
+library(rugarch)
+arch_model <-ugarchspec(variance.model = list(model = "sGARCH", garchOrder =c(1,0)),
+                        mean.model = list(armaOrder = c(1,0)), distribution = "norm")
+fit_arch <-ugarchfit(arch_model, data = residuals_stock)
+print(fit_arch)
+```
+Conclusion: 
+The estimated value of alpha 1 indicates the impact of past shocks on volatility of the stock. A higher alpha1 value suggests higher volatility persistence of the stock, while a lower alpha1 value suggests lower volatility persistence of the stock.
+
+```{r}
+#Fitting a GARCH(1,1) model with the normal distribution
+#Defining the model specifications
+model <-ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                   mean.model = list(armaOrder = c(1,0)))
+#Fitting the model
+model_fit <-ugarchfit(model, data = residuals_stock)
+print(model_fit)
+```
+Conclusion: 
+a)The alpha1 parameter indicates the impact on past shocks on current volatility. A higher value of alpha1 indicates higher persistence of volatility, meaning past shocks have a longer-lasting effect on the variance of the time series data. 
+b)The beta1 parameter captures the extent to which the volatility returns to its long-run equilibrium level after a shock. A higher beta1 value indicates faster reversion of volatility.
+
+```{r}
+#Fitting the GARCH(1,1) model with the student-t distribution
+##Defining the model specifications
+model1 <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                     mean.model = list(armaOrder = c(1,0)), distribution = "std")
+#Fitting the model
+fit_model1 <- ugarchfit(model1, data = residuals_stock, solver = "hybrid")
+print(fit_model1)
+```
+Conclusion.
+
+```{r}
+#Fitting the GARCH(1,1) model with the skewed student-t distribution
+#Defining the model specifications
+model2 <-ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                    mean.model = list(armaOrder = c(1,0)), distribution = "sstd")
+fit_model2 <-ugarchfit(model2, data = residuals_stock,
+                       solver = "hybrid")
+print(fit_model2)
+```
+Conclusion.
+The distribution is indeed skewed based on the estimated skewness parameters, which is significantly different from zero. There is also strong volatility persistence as the value of beta1 is very high (0.844247).
+
+COMPARISON OF THE THREE VOLATILITY MODELS
+We can see that the estimated mean level of the volatility (mu) is close to zero for all three models.This is in line with the results obtained when we tested for the significance of the mean.
+
+We can see that the estimated value of omega is close to zero for both the normal and skewed Student's t models but is not statistically significant for the normal model. This suggests that most of the variation in the series is captured by the auto regressive component of the GARCH model.
+
+We can compare the estimates of alpha1 and beta1, which capture the short-term and long-term persistence of the volatility, respectively. We can see that the estimates of alpha1 are similar for both the normal and skewed Student's t models, but that the estimate of beta1 is higher for the normal model than for the skewed Student's t model. This suggests that the skewed Student's t model may be better at capturing the long-term persistence of the volatility, which may be caused by occasional extreme events.
+
+We can see that the skewed Student's t model includes two additional parameters, skew and shape, which capture the skewness and kurtosis of the returns distribution. These parameters are both statistically significant, suggesting that the returns distribution exhibits significant skewness and fat tails.
+
+The skewed Student's t model for this data appears to provide a better fit to the data by capturing the long-term persistence and the skewness and kurtosis of the returns distribution.
+
+CHECKING FOR THE OPTIMAL MODEL.
+The optimal model to be used to fit the log returns of the stock is determined by analyzing the information criteria. Such criteria are the Akaike Information Criterion, Bayes Information Criterion, Shibata Information Criterion and the Hannan-Quinn Information Criterion. The smaller the values of these criteria, the better the model fit.
+The skewed student-t distribution in this case, is the optimal model with the lowest values of the information criteria. 
+Akaike       -6.5805
+Bayes        -6.5717
+Shibata      -6.5805
+Hannan-Quinn -6.5774
+FITTING OF THE GARCH EXTENSIONS (ERROR DISTRIBUTIONS)
+```{r}
+#Fitting of the GARCH-M Error distribution
+#Defining of the model specifications
+model3 <-ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                    mean.model = list(armaOrder = c(1,0), include.mean = TRUE))
+fit_model3 <-ugarchfit(model3, data = residuals_stock)
+print(fit_model3)
+```
+Conclusion.
+
+```{r}
+#Fitting the IGARCH(1,1) Error distribution
+#Defining the model specifications
+model4 <-ugarchspec(variance.model = list(model = "iGARCH", garchOrder = c(1,1)),
+                    mean.model = list(armaOrder = c(1,0)))
+fit_model4 <-ugarchfit(model4, data = residuals_stock)
+print(fit_model4)
+```
+Conclusion.
+
+```{r}
+#Fitting the E-GARCH Error distribution
+#Defining the model specifications
+model5 <-ugarchspec(variance.model = list(model = "eGARCH", garchOrder = c(1,1),
+                    mean.model = list(armaOrder = c(1,0))))
+#Fitting the model
+fit_model5 <-ugarchfit(model5, data = residuals_stock)
+print(fit_model5)
+```
+Conclusion.
+
+
+QUESTION TWO.
+
+```{r}
+#Calculate VaR using the formula
+calculate_VaR <- function(t, p) {
+  if (t < 2) {
+    stop("VaR can only be calculated for t >= 2")
+  }
+# Calculate the cumulative distribution function (CDF) of log returns up to time t-1
+FXt <- pnorm(log_returns[1:(t - 1)], mean = mean(log_returns[1:(t - 1)]), sd = sd(log_returns[1:(t - 1)]))
+# Calculate the inverse of the CDF at probability p
+inverse_CDF <- quantile(log_returns[1:(t - 1)], p)
+# Calculate VaR at time t
+VaR_t <- Cl(stock.price)[t - 1] * (exp(inverse_CDF) - 1)
+  return(VaR_t)}
+# Example usage:
+# Replace 0.05 with the desired probability level (e.g., 0.05 for 5% VaR)
+t <- 2  # Time t (replace with the desired time index)
+p <- 0.05  # Probability level
+VaR_t <- calculate_VaR(t, p)
+print(paste("VaR at time", t, "is:", VaR_t))
+```
+Conclusion.
+The calculated VaR at time t = 2 is approximately -1.47. Since VaR is usually expressed as a negative value, this means that there is an estimated 95% chance (assuming a default probability level of 5%) that the loss on the investment will not exceed -1.47 units of currency (e.g., dollars, euros, etc.) by the end of time t = 2.
+
+QUESTION THREE.
+```{r}
+# Calculate log returns (X) and squared returns (X^2)
+squared_returns <- log_returns^2
+# Step 2: Plot autocorrelation and partial autocorrelation functions for X and X^2
+plot_autocorrelation <- function(stock.price, title) {
+  par(mfrow = c(2, 1))
+  acf(stock.price, lag.max = 50, main = paste("ACF -", title))
+  pacf(stock.price, lag.max = 50, main = paste("PACF -", title))
+}
+# Plot for log returns (X)
+plot_autocorrelation(log_returns, "Log Returns (X)")
+# Plot for squared returns (X^2)
+plot_autocorrelation(squared_returns, "Squared Returns (X^2)")
+# Step 3: Perform the Ljung-Box test for X and X^2 at lag h = 50
+perform_ljung_box_test <- function(stock.price, lag = 50) {
+  lb_test <- Box.test(stock.price, lag = lag, type = "Ljung-Box")
+  return(lb_test$p.value)
+}
+# Perform the Ljung-Box test for log returns (X) at lag h = 50
+lb_p_value_X <- perform_ljung_box_test(log_returns, lag = 50)
+print(paste("Ljung-Box test p-value for X at lag 50:", lb_p_value_X))
+# Perform the Ljung-Box test for squared returns (X^2) at lag h = 50
+lb_p_value_X2 <- perform_ljung_box_test(squared_returns, lag = 50)
+print(paste("Ljung-Box test p-value for X^2 at lag 50:", lb_p_value_X2))
+```
+Conclusion.
+From the results obtained above, the probability value (p-value) is equal to zero. Testing at 5% level of significance, this implies that there is autocorrelation in the data and the data cannot be considered as a white noise. This is because:
+
+1)The results of the Ljung-Box test are given as p-values. If the p-value is less than 5% significance level, it suggests that there is significant autocorrelation in the data at the specified lag. Conversely, if the p-value is greater than the significance level, it indicates that the data can be considered as white noise, meaning there is no significant autocorrelation.
+We can also observe the plots of the autocorrelation and partial autocorrelation functions for X and X^2 up to lag 50, along with the p-values of the Ljung-Box test at lag 50. The p-values are less than 0.05, indicating the presence of significant autocorrelation.
+The Ljung-Box test is a statistical test used to check for autocorrelation in a time series. It is commonly used in time series analysis to assess whether the data has significant serial correlations at various lags.
+
+The test is based on the null hypothesis that the data points are independently distributed, and if the p-value is below a certain significance level (commonly 0.05), then we reject the null hypothesis, indicating the presence of autocorrelation.
+
+The interpretation of the results for the two cases:
+
+For "X" at lag 50:
+The p-value is reported as 0. Since p-values are typically rounded to some decimal places, a p-value of exactly 0 might indicate that the p-value is extremely small (effectively zero) and lower than the precision of the reported value. In this case, we would interpret it as strong evidence to reject the null hypothesis of no autocorrelation. This suggests that there is significant autocorrelation in the "X" time series at lag 50.
+
+For "X^2" at lag 50:
+Similarly, the p-value is reported as 0. Again, this would indicate strong evidence to reject the null hypothesis of no autocorrelation. Therefore, it suggests that there is significant autocorrelation in the "X^2" time series at lag 50.
+
+In summary, both "X" and "X^2" time series exhibit significant autocorrelation at lag 50 based on the Ljung-Box test results.
+
+QUESTION FOUR.
+```{r}
+library(astsa)
+# Split data into training and test sets
+data_length <- length(squared_returns)
+training_data <- squared_returns[2:round(0.8 * data_length)]
+test_data <- squared_returns[(round(0.8 * data_length) + 1):data_length]
+# Create empty vectors to store BIC and AICC values
+BIC_values <- matrix(NA, ncol = 6, nrow = 6)
+AIC_values <- matrix(NA, ncol = 6, nrow = 6)
+
+# Fit ARMA(p, q) models with Gaussian noise to training data
+for (p in 0:5) {
+  for (q in 0:5) {
+    if (p + q > 0 && p >= q) {
+      model <- arima(training_data, order = c(p, 0, q), method = "ML")
+      BIC_values[p + 1, q + 1] <- BIC(model)
+      AIC_values[p + 1, q + 1] <- AIC(model)
+    }
+  }
+}
+# Find the ARMA model orders that minimize BIC and AICC
+min_BIC <- which(BIC_values == min(BIC_values), arr.ind = TRUE)
+min_AIC <- which(AIC_values == min(AIC_values), arr.ind = TRUE)
+
+cat("ARMA(p, q) models that minimize BIC:", "\n")
+cat("p =", min_BIC[, 1] - 1, "q =", min_BIC[, 2] - 1, "\n")
+
+cat("\nARMA(p, q) models that minimize AICC:", "\n")
+cat("p =", min_AIC[, 1] - 1, "q =", min_AIC[, 2] - 1, "\n\n")
+# Fit ARMA(p, q) models with t-distributed noise to training data
+library(DistributionUtils)
+for (p in 0:5) {
+  for (q in 0:5) {
+    if (p + q > 0 && p >= q) {
+      model_tdist <- arima(training_data, order = c(p, 0, q), method = "ML")
+      BIC_values[p + 1, q + 1] <- BIC(model_tdist)
+      AIC_values[p + 1, q + 1] <- AIC(model_tdist)
+    }
+  }
+}
+# Find the ARMA model orders that minimize BIC and AIC with t-distributed noise
+min_BIC_tdist <- which(BIC_values == min(BIC_values), arr.ind = TRUE)
+min_AIC_tdist <- which(AIC_values == min(AIC_values), arr.ind = TRUE)
+
+cat("ARMA(p, q) models with t-distributed noise that minimize BIC:", "\n")
+cat("p =", min_BIC_tdist[, 1] - 1, "q =", min_BIC_tdist[, 2] - 1, "\n")
+cat("\nARMA(p, q) models with t-distributed noise that minimize AICC:", "\n")
+cat("p =", min_AIC_tdist[, 1] - 1, "q =", min_AIC_tdist[, 2] - 1, "\n\n")
+# Perform Ljung-Box test on the standardized residuals of each model
+perform_ljung_box_test_residuals <- function(model) {
+  residuals <- residuals(model)
+  lb_test <- Box.test(residuals, lag = 20, type = "Ljung-Box")
+  return(lb_test$p.value)
+}
+# Conduct Ljung-Box tests for the chosen ARMA models with Gaussian noise
+model_gaussian <- arima(training_data, order = c(min_BIC[, 1],1, 0, min_BIC[, 2],1), method = "ML")
+p_value_gaussian <- perform_ljung_box_test_residuals(model_gaussian)
+print(paste("Ljung-Box test p-value for ARMA model with Gaussian noise:", p_value_gaussian))
+
+# Conduct Ljung-Box tests for the chosen ARMA models with t-distributed noise
+model_tdist <- arima(training_data, order = c(min_BIC_tdist[, 1],1, 0, min_BIC_tdist[, 2], 1), method = "ML")
+p_value_tdist <- perform_ljung_box_test_residuals(model_tdist)
+print(paste("Ljung-Box test p-value for ARMA model with t-distributed noise:", p_value_tdist))
+
+# Deduce suitable GARCH models based on the obtained ARMA models
+# For example, you can use the rugarch package to fit GARCH models.
+# Here, we assume a GARCH(1, 1) model for illustration purposes.
+library(rugarch)
+# Fit GARCH(1,1) model to the squared returns
+garch_model <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+                          mean.model = list(armaOrder = c(min_BIC_tdist[, 1] ,1, 0, min_BIC_tdist[, 2] , 1)),
+                          distribution.model = "std")
+garch_fit <- ugarchfit(spec = garch_model, data = training_data)
+summary(garch_fit)
+```
+Conclusion:
+The null hypothesis for the Ljung-Box test is that the residuals are independently distributed (i.e., no autocorrelation). If the p-value is below a certain significance level (commonly 0.05), then we reject the null hypothesis, indicating the presence of autocorrelation in the residuals and suggesting that the model may not be a good fit for the data.
+
+The interpretation of the results for the two cases:
+
+For the ARMA model with Gaussian noise:
+The p-value is reported as 0. Since p-values are typically rounded to some decimal places, a p-value of exactly 0 might indicate that the p-value is extremely small (effectively zero) and lower than the precision of the reported value. In this case, we would interpret it as strong evidence to reject the null hypothesis of no autocorrelation in the residuals of the ARMA model with Gaussian noise. This suggests that the model may not adequately capture the autocorrelation in the data when using Gaussian noise.
+
+For the ARMA model with t-distributed noise:
+Similarly, the p-value is reported as 0. Again, this would indicate strong evidence to reject the null hypothesis of no autocorrelation in the residuals of the ARMA model with t-distributed noise. Therefore, it suggests that the model may not adequately capture the autocorrelation in the data when using t-distributed noise.
+
+In summary, both ARMA models (one with Gaussian noise and the other with t-distributed noise) show significant autocorrelation in their residuals based on the Ljung-Box test results. This indicates that the models may not be a good fit for the data and may require further adjustments to better capture the autocorrelation patterns present in the time series.
+
+It seems that the ARMA models are not converging properly during the fitting process, which is why the output is showing warnings related to the optim function with code = 1. The code = 1 warning indicates that the optimization routine did not converge to the desired solution.
+Convergence issues can occur when the optimization process fails to find the optimal parameter values for the model. It may happen due to various reasons, such as insufficient data, an overly complex model, or starting with poor initial parameter values.
+Possible solutions to the above addressed issues include;
+
+1) Increase the amount of training data: If you have a relatively small data set, the model might struggle to converge. Try using a larger training data set to see if it helps with convergence.
+
+2) Simplify the model: If the ARMA-GARCH model is too complex for the given data set, it might fail to converge. Consider using a simpler model with fewer AR and MA terms.
+
+3) Provide better initial parameter values: Sometimes, starting with better initial values for the parameters can help the optimization process. You can use previous parameter estimates or domain knowledge to provide reasonable starting values.
+
+QUESTION FIVE.
+```{r}
+library(rugarch)
+# Function to fit GARCH(p, q) model and compute BIC and AICC
+fit_garch_and_compute_criteria <- function(p, q, residuals_stock) {
+  garch_model <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(p, q)),
+                            mean.model = list(armaOrder = c(0, 0)), distribution = "norm")
+  
+  garch_fit <- ugarchfit(garch_model, data = residuals_stock)
+  
+  # Get log-likelihood and number of parameters
+  log_likelihood <- garch_fit@fit$llh
+  num_parameters <- length(coef(garch_fit))
+  
+  # Sample size
+  n <- length(training_data)
+  
+  # Compute BIC and AICC
+  BIC <- -2 * log_likelihood + num_parameters * log(n)
+  AICC <- -2 * log_likelihood + 2 * num_parameters * (n / (n - num_parameters - 1))
+  
+  # Return results as a named list
+  return(list(p = p, q = q, BIC = BIC, AICC = AICC))
+}
+# Determine the maximal order of the ARMA models (K) from previous task
+K <- 5  
+# Loop through all values of p and q such that 0 < p <= K and 0 <= q <= K
+results <- list()
+for (p in 1:K) {
+  for (q in 0:K) {
+    if (p > 0 | q > 0) {  # Skip GARCH(0, 0) model as it is not valid
+      model_results <- fit_garch_and_compute_criteria(p, q, residuals_stock)
+      results <- c(results, model_results)
+    }
+  }
+}
+# Convert the list of results to a data frame
+results_df <- do.call(rbind.data.frame, results)
+# Find models that minimize BIC and AICC
+min_BIC_indices <- which(results_df$BIC == min(results_df$BIC))
+min_AICC_indices <- which(results_df$AICC == min(results_df$AICC))
+# Get the candidate models with minimum BIC and AICC
+models_min_BIC <- results[min_BIC_indices]
+models_min_AICC <- results[min_AICC_indices]
+# Print the results
+cat("Models minimizing BIC:\n")
+print(models_min_BIC)
+
+cat("\nModels minimizing AICC:\n")
+print(models_min_AICC)
+```
+Conclusion.
+The output "named list()" for both models minimizing BIC and AICC indicates that there are no valid GARCH(p, q) models within the specified range of p and q (0 < p ≤ K and 0 ≤ q ≤ K) that can be fitted to the training data with Gaussian noise.
+
+In this case, it means that none of the GARCH models with different values of p and q provide a better fit to the data based on the BIC and AICC criteria compared to other models. The criteria penalize more complex models, and the minimal or no improvement in fit for the more complex GARCH models doesn't justify the additional parameters they introduce.
+
+This result may occur due to the nature of the data or due to the specific properties of the residuals after fitting ARMA models. It is not uncommon to find cases where GARCH models do not significantly improve the fit over simpler models, especially with financial time series data, where the variance clustering behavior may not be very pronounced.
+
