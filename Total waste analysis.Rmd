@@ -1,0 +1,283 @@
+---
+title: "Landfill analysis"
+output: word_document
+date: "2023-11-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+##Libraries required
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(forecast)
+library(dplyr)
+library(TSA)
+library(fBasics)
+library(gt)
+library(stargazer)
+##Loading the data set to be used
+Land_Fill <- read_excel("C:/Users/Baha/OneDrive/Desktop/LandFill.xlsx")
+head(Land_Fill)
+```
+```{r}
+##Descriptive statistics of the total waste data
+# Create a list of vectors for each variable
+attach(Land_Fill)
+Antelope_stats <-c(mean(Land_Fill$`Antelope-Landfill`),
+                        median(Land_Fill$`Antelope-Landfill`),
+                               min(Land_Fill$`Antelope-Landfill`),
+                        max(Land_Fill$`Antelope-Landfill`))
+Azusa_stats <-c(mean(Land_Fill$`Azusa-Landfill`),    median(Land_Fill$`Azusa-Landfill`),
+                min(Land_Fill$`Azusa-Landfill`),
+                max(Land_Fill$`Azusa-Landfill`))
+Burbank_stats <-c(mean(Land_Fill$`Burbank-Landfill`),median(Land_Fill$`Burbank-Landfill`), min(Land_Fill$`Burbank-Landfill`),
+                  max(Land_Fill$`Burbank-Landfill`))
+calabasas_stats <-c(mean(Land_Fill$`Calabasas-Landfill`),
+                    median(Land_Fill$`Calabasas-Landfill`),
+                    min(Land_Fill$`Calabasas-Landfill`),
+                    max(Land_Fill$`Calabasas-Landfill`))
+Avalon_stats <-c(mean(Land_Fill$`Avalon-Disposal`),
+                 median(Land_Fill$`Avalon-Disposal`),
+                 min(Land_Fill$`Avalon-Disposal`),
+                 max(Land_Fill$`Avalon-Disposal`))
+Southeast_stats <-c(mean(Land_Fill$`Southeast-Facility`), 
+                    median(Land_Fill$`Southeast-Facility`),
+                    min(Land_Fill$`Southeast-Facility`),
+                    max(Land_Fill$`Southeast-Facility`))
+Sunshine_stats <-c(mean(Land_Fill$`Sunshine-Landfill`),
+                   median(Land_Fill$`Sunshine-Landfill`),
+                   min(Land_Fill$`Sunshine-Landfill`),
+                   max(Land_Fill$`Sunshine-Landfill`))
+Sanclemente <- c(mean(Land_Fill$`SanClemente-Landfill`),
+                 median(Land_Fill$`SanClemente-Landfill`),
+                 min(Land_Fill$`SanClemente-Landfill`),
+                 max(Land_Fill$`SanClemente-Landfill`))
+# Create a data frame
+stacs <-data.frame(`Antelope-Landfill`=Antelope_stats,
+                   `Azusa-Landfill` = Azusa_stats,
+                   `Burbank-Landfill` = Burbank_stats,
+                   `Calabasas-Landfill` = calabasas_stats,
+                   `Avalon-Disposal` = Avalon_stats,
+                   `Southeast-Facility` = Southeast_stats,
+                   `Sunshine-Landfill` = Sunshine_stats,
+                   `SanClemente-Landfill` = Sanclemente)
+row.names(stacs) <- c("Mean", "Median", "Minimum","Maximum")
+# Print the table using stargazer
+stargazer(stacs, title = "Descriptive Statistics", type = "text")
+```
+
+From the above descriptive statistics, It can be said that the total waste data is positively distributed, with no site that has a negative value, This means that the data can only be analysed using positively skewed distributions such as the gamma distribution, log-normal distribution and the exponential distribution.
+
+##Total waste comparison
+Sites with the highest total waste were; Antelope landfill, Calabasas landfill and Sunshine landfill. The sites with the lowest total waste were; Southeast facility, San Clemente landfill and Avalon landfill.
+
+From the statistics above, the anomalies can be identified such that there is a site with a mean of 0, and we have sites with a mean of more than 100,000. This is unusual for a data set and thus considered to have anomaly. There is also a site that never recorded any waste disposal for the whole period. This is unusual since the maximum and minimum values of the site are 0, meaning there was no any record of waste disposal, while we have those sites with very high records of waste disposal.
+
+##Temporal Trends 
+```{r}
+#convert the date variable to date class
+Land_Fill$TIME <-as.factor(Land_Fill$TIME)
+Land_Fill$TIME <- as.Date(paste0("01-", Land_Fill$TIME), format = "%d-%b %Y")
+ts.plot(subset(Land_Fill, select = `Antelope-Landfill`), main = "Antelope series plot ", ylab = "Antelope", xlab = "TIME")
+ts.plot(subset(Land_Fill, select = `Azusa-Landfill`), main = "Azusa series plot", ylab = "Azusa", xlab = "TIME")
+ts.plot(subset(Land_Fill, select = `Burbank-Landfill`), main = "Burbank series plot", ylab = "Burbank", xlab = "TIME")
+ts.plot(subset(Land_Fill, select = `Calabasas-Landfill`), main = "Calabasas series plot", ylab = "Calabasas", xlab = "TIME")
+ts.plot(subset(Land_Fill, select = `Avalon-Disposal`), main = "Avalon series plot", ylab = "Avalon", xlab = "Time")
+ts.plot(subset(Land_Fill, select = `Sunshine-Landfill`), main = "Sunshine series plot", ylab = "Sunshine", xlab = "TIME")
+ts.plot(subset(Land_Fill, select = `SanClemente-Landfill`), main = "San Clemente", ylab = "San Clemente", xlab = "TIME")
+```
+
+From the time series plots above, the periods for significant increase or decrease kept on varying from one site to another, For example, the calabasas landfill had a significant increase towards the end of the period, that is from the first quarter of the year 2019, and a sharp decrease towards the end of the fourth quarter of the year 2019. Avalon landfill had a significant seasonal increase and decrease, though generally it had a significant increase of the recorded total waste. Sunshine landfill had a significant decrease from the first quarter of the year 2017, the decrease went on up to the fourth quarter of the year 2018, that is when it began to have a significant increase in total waste.
+
+##Outlier Identification
+```{r}
+##Box plots will be used to check for outliers
+##Create a box plot to check for outliers
+##Athelope landfill
+boxplot(Land_Fill$`Antelope-Landfill`, main = "Boxplot for outlier check")
+```
+As indicated by the box plot, the athelope landfill had no outliers.
+```{r}
+##Azusa landfill
+boxplot(Land_Fill$`Azusa-Landfill`, main = "Boxplot for outlier check")
+##The Azusa landfill had an outlier value
+```
+
+```{r}
+##Burbank landfill
+boxplot(Land_Fill$`Lancaster-Landfill`, main = "Boxplot for outlier check")
+```
+The Burbank landfill had no outliers identified.
+
+```{r}
+##Calabasas landfill
+boxplot(Land_Fill$`Calabasas-Landfill`, main = "Boxplot for outlier check")
+```
+As shown from the plot, the Calabasas landfill had outliers identified.
+
+```{r}
+##Canyon landfill
+boxplot(Land_Fill$`Canyon-Lnadfill`, main = "Boxplot for outlier check")
+```
+The Canyon site, had no outliers identified.
+
+```{r}
+##Avalon site
+boxplot(Land_Fill$`Avalon-Disposal`, main = "Boxplot for outlier check")
+```
+As shown, the Avalon site had no outliers identified.
+
+```{r}
+##Sunshine site
+boxplot(Land_Fill$`Sunshine-Landfill`, main = "Boxplot for outlier check")
+```
+The sunshine site had  no outliers as shown by the boxplot
+
+```{r}
+##San Clemente site
+boxplot(Land_Fill$`SanClemente-Landfill`, main = "Boxplot for outlier check")
+```
+The San Clemente site had an outlier observation as indicated by the plot.
+From the plots above, It can be said the there were sites that had outliers and those that did not. Outliers can significantly affect the mean, pulling it towards the extreme values, and it can be shown through the descriptive statics where some sites had higher means than others. Outliers can also distort the variability of the data, and thus affects the standard deviation of the data. When the data set has outliers, the mean is never  a good measure of centrality since it is less sensitive to outliers.
+
+##Missing data check
+The data set was checked for missing values through..
+```{r}
+##The data set had missing values and it was taken care of using the function..
+Land_Fill <- na.omit(Land_Fill)
+##And hence the data set was clean from missing values
+colSums(is.na(Land_Fill))
+```
+
+## Correlation Analysis
+```{r}
+##Explore the correlation between total waste generated by different sites
+library(corrr)
+library(corrplot)
+corr_matrix <-cor(Land_Fill[, c(-1,-12)])
+head(corr_matrix)
+##Calculating the correlation coefficients to understand relationships.
+corr_coefficients <-cor(Land_Fill[, c(-1,-12)])
+##The columns Year was excluded in the calculation of correlation matrix and ##the column Southeast facility was also excluded since it had zero entries ##only. This could have affected the calculation of correlation coefficients ##returning NAs
+
+##Visualizing the correlation matrix
+corrplot(corr_coefficients, method = "color")
+```
+##Boxplots for every site
+```{r}
+##Antelope site
+boxplot(Land_Fill$`Antelope-Landfill`, main = "Antelope landfill boxplot")
+```
+From the above plot, the box plot is not long enough, indicating there is no greater variability in the variable antelope, the whisker length is also short, indicating a smaller spread of the data. The variability in the median was noticed since it is past the middle of the box plot.
+
+```{r}
+##Azusa site
+boxplot(Land_Fill$`Azusa-Landfill`, main = "Azusa landfill boxplot")
+```
+
+The Azusa site had outliers in its total waste data, the box length is not long, indicating that there was no greater variability in the variable Azusa landfill. The median variability is not large enough.
+
+```{r}
+##Burbank site
+boxplot(Land_Fill$`Burbank-Landfill`, main = "Burbank landfill boxplot")
+```
+
+The plot indicates that the variability of the total waste in the burbank site was not large, since the median variability is non existent, it is in the middle of the box, and the box length and whisker length are not long enough. The variable however had outliers.
+
+```{r}
+##Calabasas site
+boxplot(Land_Fill$`Calabasas-Landfill`, main = "Calabasas landfill boxplot")
+```
+
+From the plot, the variable had outliers, although there was no greater variability in the data.
+
+```{r}
+Antelope_data <- Land_Fill %>% 
+  select(c(Time, `Antelope-Landfill`))
+Antelope_data
+summary(Antelope_data)
+```
+The mean waste for the antelope site is 101027, the minimum and maximum  values for the antelope site are 26291 and 160418 respectively. The first and second quarters had the minimum waste disposal and the third and fourth quarters had the maximum waste disposal for the antelope site.
+
+##The patterns and trends specific to this site
+##The analysis will consider a time series plot and the ggplot
+
+```{r}
+ts.plot(subset(Antelope_data, select = `Antelope-Landfill`), main = "Time series plot for the antelope site", ylab = "Antelope site total waste", xlab = "Time")
+```
+From the time series plot above, It can be deduced that the antelope site total waste had a significant increase all throughout the period. This meant that as the years passed, the total waste disposal had a gradual increase.
+
+##ggplot
+```{r}
+library(ggplot2)
+ggplot(data.frame(x = seq_along(Antelope_data$`Antelope-Landfill`), y = Antelope_data$`Antelope-Landfill`), aes(x, y)) +
+  geom_point() +
+  ggtitle("Scatter Plot to the antelope site total waste") +
+  theme_minimal()
+```
+
+From the scatter plot above, it can also be deduced that as the period increased, it led to an increase in the total waste disposal. This can be explained in terms of an increase in the population growth which resulted in the more disposal of waste.
+
+##Inferential statistics
+```{r}
+##T-tests
+T_test <- t.test(`Antelope-Landfill`, `Azusa-Landfill`);T_test
+```
+
+The Probability value is less than 5% level of significance and thus the null hypothesis is rejected. The alternative hypothesis is that the true difference in means is not equal to zero. Which is true.
+
+```{r}
+T_tests1 <-t.test(`Burbank-Landfill`, `Calabasas-Landfill` );T_tests1
+```
+
+The p-value is less than 5% level of significance and thus the null hypothesis is rejected and the alternative hypothesis accepted.
+
+```{r}
+T_test2 <-t.test(`Canyon-Lnadfill`, `Lancaster-Landfill`);T_test2
+```
+
+The probability value is less than 5% level of significance, the alternative hypothesis will be accepted and thus the true difference in means is not equal to 0
+
+```{r}
+T_test3 <-t.test(`Avalon-Disposal`, `SanClemente-Landfill`);T_test3
+```
+
+The probability value is less than 5% level of significance, and thus the alternative hypothesis that the true difference between the means is not equal to zero is accepted.
+
+##ANOVA 
+
+```{r}
+anova_statistic <- aov(cbind(`Antelope-Landfill`, `Azusa-Landfill`,
+          `Burbank-Landfill`, `Canyon-Lnadfill`, `Sunshine-Landfill`,
+          `SanClemente-Landfill`,
+          `Lancaster-Landfill`, `Calabasas-Landfill`,
+          `Avalon-Disposal`,
+          `Southeast-Facility`,
+          `Scholl-Landfill`,
+          `Sunshine-Landfill`, `Savage-Landfill`)~1, data = Land_Fill)
+summary(anova_statistic)
+```
+
+##Regression analysis
+
+```{r}
+model <-lm(`Antelope-Landfill`~`Azusa-Landfill`, data = Land_Fill)
+summary(model)
+model1 <-lm(`Burbank-Landfill`~`Calabasas-Landfill`, data = Land_Fill)
+summary(model1)
+model3 <-lm(`SanClemente-Landfill`~`Sunshine-Landfill`, data = Land_Fill)
+summary(model3)
+model4 <-lm(`Avalon-Disposal`~`Savage-Landfill`, data = Land_Fill)
+summary(model4)
+```
+
+From the above regression analyses, it was deduced that some of the variables sites were significant, for example, savage site and Azusa site as their probability values were less than the normal 5% level of significance. While others were insignificant, for example, Calabasas site and Sunshine site, their probability values were greater than the normal 5% level of significance. Also, Variable sites such as Calabasas site had a negative relationship with the other variable sites as the estimate was negative.
+
+##Research question: As the population changed, were landfills experiencing a change in waste?"
+
+As the population changed, the total waste also changed over the period due to the following reasons: The population data set indicated a change in the population growth every year, and this also meant that the fluctuation in the total waste every year would arise, and this is depicted by the time series plots, the cyclical component that was present in every time series plot of every site. A growth in population means that more people will consume and this will lead to higher residential, commercial and industrial wastes that will be produced. Once they are produced, they will be disposed into the various disposal sites and this will lead to a higher record of waste disposal. Unlike when there is no population growth or the rate of population growth is very low. Waste generation will be also low and thus total waste disposal will also be low.
