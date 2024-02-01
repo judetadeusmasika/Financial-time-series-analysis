@@ -1,0 +1,203 @@
+---
+title: "Portfolio forecasting"
+output: word_document
+date: "2024-01-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{r}
+setwd("C:/Users/Baha/Downloads")
+library(tidyverse)
+library(readxl)
+
+## Risky assets
+GOLD <-read_excel("GOLD DATA.xlsx")
+attach(GOLD)
+log_prices <- GOLD$lnP
+# Calculate log returns
+lnR <- diff(log_prices)
+# Add the log returns as a new column to the data frame
+GOLD$lnR <- c(NA, lnR)
+# Display the updated data frame
+head(GOLD)
+## The descriptive statistics of the dataset
+summary(GOLD)
+library(fBasics)
+
+skewness(GOLD$lnR, na.rm = TRUE)
+kurtosis(GOLD$lnR, na.rm = TRUE)
+
+skewness(GOLD$lnP)
+kurtosis(GOLD$lnP)
+
+## Risk free assets
+treasury <-read.csv("treasury-rates.csv")
+head(treasury)
+summary(treasury)
+
+sd(GOLD$lnP)
+sd(GOLD$lnR, na.rm = TRUE)
+
+skewness(treasury$Price)
+kurtosis(treasury$Price)
+
+sd(treasury$Price)
+sd(treasury$Return)
+
+skewness(treasury$Return)
+kurtosis(treasury$Return)
+```
+
+
+```{r}
+# Tell R not to use scientific notations
+options(scipen = 999)
+## Risky assets
+# Calculate the expected return
+expected_return <- mean(GOLD$lnR, na.rm = TRUE)
+# Calculate the variance
+variance <- var(GOLD$lnR, na.rm = TRUE)
+# Print the results
+cat("Expected Return:", expected_return, "\n")
+cat("Variance:", variance, "\n")
+
+## Risk free assets
+# Calculate expected return
+expected_return_free <- mean(treasury$Price, na.rm = TRUE)
+# Calculate variance
+variance_free <- var(treasury$Price, na.rm = TRUE)
+# Print the results
+cat("Expected Return:", expected_return_free, "\n")
+cat("Variance:", variance_free, "\n")
+```
+
+```{r}
+##Mean Variance portfolio
+returns <-matrix(treasury$Return, ncol = 1)
+
+# Define ranges of k for different risk aversion levels
+k_low <- c(1, 2)
+k_medium <- c(2, 4)
+k_high <- c(5, 7)
+
+# Function to compute Mean-Variance portfolio
+optimal_portfolio <- function(returns, k_range) {
+  library(quadprog)  # Load quadprog package for quadratic programming
+
+  # Number of assets
+  n <- length(returns)
+
+  # Mean return vector (expected returns)
+  mu <- colMeans(returns)
+
+  # Covariance matrix of returns
+  Sigma <- cov(returns)
+
+  # Objective function coefficients (1 x n)
+  dvec <- rep(0, n)
+
+  # Constraints matrix (k x n)
+  Amat <- rbind(rep(1, n), mu)
+
+  # Constraints vector (k x 1)
+  bvec <- c(1, k_range[2])
+
+  # Solve the quadratic programming problem
+  opt_portfolio <- solve.QP(Dmat =2*Sigma, dvec = dvec, Amat = t(Amat), bvec = bvec, meq = 1)
+
+  # Extract optimal portfolio weights
+  weights <- opt_portfolio$solution
+
+  # Return optimal portfolio weights
+  return(weights)
+}
+#Print the portfolio
+print(optimal_portfolio)
+```
+
+
+```{r}
+# Load necessary packages
+library(quantmod)
+# Combine returns into a single data frame
+returns <- cbind(treasury$Return, GOLD$lnP)
+
+# Calculate expected returns and covariance matrix
+mu <- colMeans(returns)  # Expected returns
+Sigma <- cov(returns)    # Covariance matrix
+
+#Define optimization objectives and constraints
+#Solve the optimization problem
+#calculate basic portfolio statistics
+# Evaluate the optimal portfolio
+opt_weights <- rep(1/ncol(returns), ncol(returns))  # Equal-weighted portfolio
+opt_return <- sum(mu * opt_weights)                  # Expected return of the optimal portfolio
+opt_variance <- t(opt_weights) %*% Sigma %*% opt_weights  # Portfolio variance
+# Print results
+cat("Optimal Portfolio Weights:", opt_weights, "\n")
+cat("Expected Return of Optimal Portfolio:", opt_return, "\n")
+cat("Portfolio Variance of Optimal Portfolio:", opt_variance, "\n")
+
+```
+
+
+```{r}
+##Stationary test
+##Augmented Dickey Fuller test
+# Risky free asset
+library(tseries)
+set.seed(123)
+# Perform the ADF test
+adf_result <- adf.test(treasury$Return)
+adf_result1 <-adf.test(treasury$Price)
+# Print the results
+print(adf_result)
+print(adf_result1)
+```
+The returns are not stationary. p-value < 0.05.
+
+
+```{r}
+#Risky asset, GOLD
+# Perform the ADF test
+adf_result <- adf.test(GOLD$lnP)
+# Print the results
+print(adf_result)
+```
+
+```{r}
+##Splitting the dataset
+library(tidymodels)
+# Split the Data into the in-sample data and the out-sample data sets
+# For Risky asset, GOLD.
+set.seed(123)
+GOLD_data_split <- GOLD %>% rsample::initial_split(strata= 
+         "lnP",
+                    prop = 0.8)
+GOLD_data_train <- rsample::training(GOLD_data_split)
+GOLD_data_test <- rsample::testing(GOLD_data_split)
+# the in-sample data set
+glimpse(GOLD_data_train)
+# the out-sample data set
+glimpse(GOLD_data_test)
+```
+
+```{r}
+# Splitting the dataset
+#For the risky-free asset
+treasury_data_split <- treasury %>% rsample::initial_split(strata= 
+         "Return",
+                    prop = 0.8)
+treasury_data_train <- rsample::training(treasury_data_split)
+treasury_data_test <- rsample::testing(treasury_data_split)
+# the in-sample data set
+glimpse(treasury_data_train)
+# the out-sample data set
+glimpse(treasury_data_test)
+```
+
