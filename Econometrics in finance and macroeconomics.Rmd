@@ -1,0 +1,369 @@
+---
+title: "Applied Econometrics for Macroeconomics and Finance"
+output:
+  pdf_document: default
+  html_document: default
+date: 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+
+
+```{r}
+# Set the working directory
+setwd("C:/Users/Baha/Downloads")
+#load the required packages
+library(astsa)
+library(forecast)
+library(timeSeries)
+library(tidyverse)
+#Load the dataset
+report1 <-read.csv("report1.csv")
+head(report1)
+```
+
+
+```{r}
+#Check for missing values in the dataset
+colSums(is.na(report1))
+dim(report1)
+#The dataset has missing values, we remove them.
+report1 <-report1 %>% 
+  na.omit()
+dim(report1)
+colSums(is.na(report1))
+head(report1)
+```
+
+
+```{r}
+#Inspect the structure of the cleaned dataset
+str(report1)
+```
+
+
+# Model selection
+
+For model selection, we'll use techniques like ACF/PACF plots, differencing, and information criteria (e.g., AIC, BIC) to choose appropriate ARIMA models for inflation.
+
+```{r}
+# ACF and PACF plots
+acf(report1$INF, main="ACF Plot of Inflation")
+pacf(report1$INF, main="PACF Plot of Inflation")
+# Differencing if necessary
+diff_inflation <- diff(report1$INF)
+# ACF and PACF plots for differenced data
+acf(diff_inflation, main="ACF Plot of Differenced Inflation")
+pacf(diff_inflation, main="PACF Plot of Differenced Inflation")
+```
+
+
+```{r}
+# Fit the first ARIMA model
+model1 <- Arima(report1$INF,order = c(1,1,2))
+# Display the fitted model
+summary(model1)
+```
+
+
+```{r}
+#Fit the second ARIMA model
+model2 <-Arima(report1$INF, order = c(1,2,1))
+#Print the summary of the model2
+summary(model2)
+```
+
+
+```{r}
+#Fit the third ARIMA model
+model3 <-Arima(report1$INF, order = c(2,1,1))
+summary(model3)
+```
+
+#Forecasting
+
+Once we have selected three ARIMA models, we can use them to forecast inflation for 2023 and 2024.
+
+```{r}
+# Forecasting inflation for 2023 and 2024 using the selected models
+#Forecasts for the first model
+forecast_model1 <- forecast(model1, h=8)
+# View the forecasts
+print(forecast_model1)
+```
+
+
+```{r}
+#Forecasts for the second model
+forecast_model2 <- forecast(model2, h=8)
+# View the forecasts
+print(forecast_model2)
+```
+
+
+```{r}
+#Forecasts for the third model
+forecast_model3 <- forecast(model3, h=8)
+# View the forecasts
+print(forecast_model3)
+```
+
+
+#Comparison of the forecasted values for the three fitted models and the actual values of inflation
+
+```{r}
+# Actual inflation data for Q1 to Q3 in 2023
+actual_inflation = c(5.6, 3.2, 4.8)
+# Forecast values from each ARIMA model for Q1 to Q3 in 2023
+forecast_inflation1 = c(4.9, 5.4, 4.9) 
+forecast_inflation2 = c(4.0, 4.4, 4.2)
+forecast_inflation3 = c(4.5, 4.7, 4.8)
+# Calculate forecast errors for each model
+forecast_errors <- function(actual, forecast) {
+  errors <- actual - forecast
+  mae <- mean(abs(errors))
+  mse <- mean(errors^2)
+  rmse <- sqrt(mse)
+  return(c(mae, mse, rmse))
+}
+
+# Calculate forecast errors for each model
+errors_model1 <- forecast_errors(actual_inflation, forecast_inflation1)
+errors_model2 <- forecast_errors(actual_inflation, forecast_inflation2)
+errors_model3 <- forecast_errors(actual_inflation, forecast_inflation3)
+# Print forecast errors for each model
+cat("Model 1:\n")
+cat("MAE:", errors_model1[1], "\n")
+cat("MSE:", errors_model1[2], "\n")
+cat("RMSE:", errors_model1[3], "\n\n")
+
+cat("Model 2:\n")
+cat("MAE:", errors_model2[1], "\n")
+cat("MSE:", errors_model2[2], "\n")
+cat("RMSE:", errors_model2[3], "\n\n")
+
+cat("Model 3:\n")
+cat("MAE:", errors_model3[1], "\n")
+cat("MSE:", errors_model3[2], "\n")
+cat("RMSE:", errors_model3[3], "\n")
+```
+# Model 3 #####
+
+
+#Term structure of interest rates
+
+```{r}
+#Evidence of whether the interest rates are stationary
+library(urca)
+# Perform Augmented Dickey-Fuller (ADF) test for each interest rate
+adf_test_rt <- ur.df(report1$OCR, type = "drift", lags = 4)
+adf_test_r3 <- ur.df(report1$r3Mth, type = "drift", lags = 4)
+adf_test_r5 <- ur.df(report1$r5Yr, type = "drift", lags = 4)
+adf_test_r10 <- ur.df(report1$r10Yr, type = "drift", lags = 4)
+
+# Print ADF test results for each interest rate
+print("ADF Test Results for rt:")
+summary(adf_test_rt)
+print("ADF Test Results for r3:")
+summary(adf_test_r3)
+print("ADF Test Results for r5:")
+summary(adf_test_r5)
+print("ADF Test Results for r10:")
+summary(adf_test_r10)
+```
+
+
+
+```{r}
+# Define the variables for cointegration analysis
+interest_rates <- report1[, c("OCR", "r3Mth", "r5Yr", "r10Yr")]
+
+# Perform Johansen cointegration test
+johansen_test <- ca.jo(interest_rates, type = "trace", ecdet = "const", K = 4)
+
+# Print the results
+summary(johansen_test)
+```
+#Stationarity Test for Spreads
+
+```{r}
+# Calculate the interest rate spreads
+spread_3_1 <- report1$r3Mth - report1$OCR
+spread_5_3 <- report1$r5Yr - report1$r3Mth
+spread_10_5 <- report1$r10Yr - report1$r5Yr
+
+# Perform ADF test for each spread
+adf_test_3_1 <- ur.df(spread_3_1, type = "drift", lags = 4)
+adf_test_5_3 <- ur.df(spread_5_3, type = "drift", lags = 4)
+adf_test_10_5 <- ur.df(spread_10_5, type = "drift", lags = 4)
+
+# Print ADF test results for each spread
+print("ADF Test Results for Spread st,3-1:")
+summary(adf_test_3_1)
+print("ADF Test Results for Spread st,5-3:")
+summary(adf_test_5_3)
+print("ADF Test Results for Spread st,10-5:")
+summary(adf_test_10_5)
+```
+
+#Dynamic Effects on Inflation
+
+```{r}
+# Load necessary packages
+library(vars)
+
+# Create a data frame with the spreads and inflation
+Spreads_inflation <- data.frame(spread_3_1, spread_5_3, spread_10_5, inflation = report1$INF)
+
+# Estimate Vector Auto regressive model
+var_model <- VAR(Spreads_inflation, p = 2)  
+# Perform Granger causality test to analyze dynamic effects
+# Perform Granger causality test
+granger_test <- causality(var_model, cause = c("spread_3_1", "spread_5_3", "spread_10_5"))
+
+# Print Granger causality test results
+print("Granger Causality Test Results:")
+print(granger_test)
+```
+
+
+```{r}
+# Compute impulse response function (IRF)
+irf <- irf(var_model, impulse = "spread_3_1", response = "inflation", boot = FALSE, n.ahead = 10)
+irf
+# Extract IRF at different time horizons
+irf_at_impact <- irf$irf[[1]][1, ]
+irf_one_year <- irf$irf[[1]][2, ]
+irf_ten_years <- irf$irf[[1]][11, ]
+
+# Print the effects on inflation at different time horizons
+print("Effects on Inflation:")
+print("At the time of impact:")
+print(irf_at_impact)
+print("One year after impact:")
+print(irf_one_year)
+print("Ten years after impact:")
+print(irf_ten_years)
+```
+
+
+```{r}
+# Compute impulse response function (IRF)
+irf <- irf(var_model, impulse = "spread_10_5", response = "inflation", boot = FALSE, n.ahead = 10)
+
+# Extract IRF at different time horizons
+irf_at_impact <- irf$irf[[1]][1, ]
+irf_one_year <- irf$irf[[1]][2, ]
+irf_ten_years <- irf$irf[[1]][11, ]
+
+# Print the effects on inflation at different time horizons
+print("Effects on Inflation:")
+print("At the time of impact:")
+print(irf_at_impact)
+print("One year after impact:")
+print(irf_one_year)
+print("Ten years after impact:")
+print(irf_ten_years)
+```
+
+
+
+```{r}
+report2 <-read.csv("C:/Users/Baha/Downloads/report2 .csv")
+#Check for missing values in the data
+dim(report2)
+sum(is.na(report2)) # No missing values in the data
+head(report2)
+```
+
+
+```{r}
+# Load necessary libraries
+library(readr)
+library(tseries)
+library(rugarch)
+# Extract the variables
+rBHP <- report2$BHP
+rCBA <- report2$CBA
+
+# Define the GARCH model specification
+specs <- ugarchspec(mean.model = list(armaOrder = c(0, 0)), 
+                   variance.model = list(model = "sGARCH"), 
+                   distribution.model = "std")
+
+# Estimate GARCH model for rBHP
+garch_rBHP <- ugarchfit(specs, data = rBHP, solver.control = list(trace = FALSE))
+
+# Summary of the estimated model for rBHP
+print(garch_rBHP)
+
+# Estimate GARCH model for rCBA
+garch_rCBA <- ugarchfit(specs, data = rCBA, solver.control = list(trace = FALSE))
+
+# Summary of the estimated model for rCBA
+print(garch_rCBA)
+```
+
+
+```{r}
+# Extract the volatility estimates from the GARCH models
+volatility_rBHP <- sigma(garch_rBHP)
+volatility_rCBA <- sigma(garch_rCBA)
+
+# Read the dataset containing pVIX_t
+pVIX <- report2$VIX
+# Plot the volatility series and pVIX_t for visual comparison
+plot(volatility_rBHP, type = "l", col = "blue", ylim = c(0, max(max(volatility_rBHP), max(volatility_rCBA), max(pVIX))), 
+     xlab = "Date", ylab = "Volatility", main = "Comparison of Volatility Estimates")
+lines(volatility_rCBA, col = "red")
+lines(pVIX, col = "green")
+legend("topright", legend = c("rBHP", "rCBA", "pVIX"), col = c("blue", "red", "green"), lty = 1, cex = 0.8)
+
+# Calculate summary statistics for comparison
+summary(volatility_rBHP)
+summary(volatility_rCBA)
+summary(pVIX)
+```
+
+
+```{r}
+# Calculate probability of returns less than 0.01% for specific dates
+# Filter data for the specified dates
+returns_28_02_2024 <- subset(report2, Date == "28/02/2024")$BHP
+returns_29_02_2024 <- subset(report2, Date == "2024/02/29")$BHP
+returns_01_03_2024 <- subset(report2, Date == "2024/03/01")$BHP
+
+# Calculate the probability of returns less than 0.01%
+prob_less_than_0.01_28_02_2024 <- mean(report2$BHP < 0.0001, na.rm = TRUE)
+prob_less_than_0.01_29_02_2024 <- mean(report2$BHP < 0.0001, na.rm = TRUE)
+prob_less_than_0.01_01_03_2024 <- mean(report2$BHP < 0.0001, na.rm = TRUE)
+
+# Print the probabilities
+cat("Probability of returns less than 0.01% on 2024-02-28:", prob_less_than_0.01_28_02_2024, "\n")
+cat("Probability of returns less than 0.01% on 2024-02-29:", prob_less_than_0.01_29_02_2024, "\n")
+cat("Probability of returns less than 0.01% on 2024-03-01:", prob_less_than_0.01_01_03_2024, "\n")
+```
+
+
+```{r}
+# Filter data for the specified dates
+returns_28_02_2024 <- subset(report2, Date == "28/02/2024")$CBA
+returns_29_02_2024 <- subset(report2, Date == "2024/02/29")$CBA
+returns_01_03_2024 <- subset(report2, Date == "2024/03/01")$CBA
+
+# Calculate the probability of returns less than 0.01%
+prob_less_than_0.01_28_02_2024 <- mean(report2$CBA < 0.0001, na.rm = TRUE)
+prob_less_than_0.01_29_02_2024 <- mean(report2$CBA < 0.0001, na.rm = TRUE)
+prob_less_than_0.01_01_03_2024 <- mean(report2$CBA < 0.0001, na.rm = TRUE)
+
+# Print the probabilities
+cat("Probability of returns less than 0.01% on 2024-02-28:", prob_less_than_0.01_28_02_2024, "\n")
+cat("Probability of returns less than 0.01% on 2024-02-29:", prob_less_than_0.01_29_02_2024, "\n")
+cat("Probability of returns less than 0.01% on 2024-03-01:", prob_less_than_0.01_01_03_2024, "\n")
+```
+
