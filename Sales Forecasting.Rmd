@@ -1,0 +1,266 @@
+---
+title: "Sales Forecasting"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-07-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+## Introduction
+
+The purpose for this analysis is to forecast the products' sales using a suitable forecasting model.
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(tidyquant)
+library(quantmod)
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(readr)
+library(gt)
+```
+
+## Data preparation
+# loading and cleaning the data
+
+```{r}
+### set the working directory
+setwd("C:/Users/Baha/Downloads/Artikeldaten_F")
+## load the data files into the program
+F01000 <- read_csv("F01000.csv")
+F02000 <- read_csv("F02000.csv")
+F03000 <- read_csv("F03000.csv")
+F04000 <- read_csv("F04000.csv")
+# Combine all data files into a single data frame for easier processing
+sales_data <- bind_rows(
+  F01000 %>% mutate(Product = "F01000"),
+  F02000 %>% mutate(Product = "F02000"),
+  F03000 %>% mutate(Product = "F03000"),
+  F04000 %>% mutate(Product = "F04000")
+)
+## display the first 15 observations
+sales_data %>% 
+  head(n=15) %>% 
+  gt()
+## diaplay the last 20 observations of the merged data files
+sales_data %>% 
+  tail(n=20) %>% 
+  gt()
+```
+
+
+```{r}
+## convert the datum column to date format
+sales_data$Datum <- as.Date(sales_data$Datum, format = "%d.%m.%Y")
+### check for missing values and handle them
+sapply(sales_data, function(x) table(is.na(x))) ## the data set has missing values
+sales_data <- sales_data %>%
+  group_by(Product) %>%
+  mutate(Menge = ifelse(is.na(Menge), approx(x = Datum, y = Menge, xout = Datum)$y, Menge))
+str(sales_data)
+## check for missing values again
+sapply(sales_data, function(x) table(is.na(x))) ## we replaced missing values with the modal value of the data
+```
+
+## Exploratory Data Analysis, this section visualizes the trend and patterns of the 4 products together with its interpretation.
+
+```{r}
+# Plot sales trends for each product
+ggplot(sales_data, aes(x = Datum, y = Menge, color = Product)) +
+  geom_line(alpha=0.8) +
+  labs(title = "Sales Trends Over Time", x = "Date", y = "Sales Volume") +
+  theme_tq() +
+  theme(plot.title = element_text(size = 20))
+```
+
+##General Observations
+
+Overall, F01000 has the highest and most volatile sales volume, indicating a product with high market activity and possible seasonality. F02000 shows growth and stabilization, suggesting successful positioning in the market. F03000 and F04000 have more stable and lower sales volumes, with F04000’s sales being notably impacted by promotions. These trends provide insights into the market behavior for each product and will inform the sales forecast and marketing strategies.
+
+
+```{r}
+sales_data %>% 
+  filter(Product=="F01000") %>% 
+  ggplot(aes(x = Datum, y = Menge, color = Product)) +
+  geom_line(alpha=0.8) +
+  scale_color_manual(values = palette_light()[[6]]) +
+  labs(title = "Sales Trends Over Time", x = "Date", y = "Sales Volume") +
+  theme_tq() +
+  theme(plot.title = element_text(size = 20))
+```
+
+The sales volume for product F01000 shows a relatively high and fluctuating pattern compared to the other products. The sales appear to have significant seasonal variations, with multiple peaks and troughs throughout the period. The most notable fluctuations are observed around mid-2021 and late 2022, indicating possible promotional events, supply issues, or seasonal demand. The overall trend seems slightly declining toward the end of the period, suggesting a possible decrease in popularity or market saturation.
+
+
+```{r}
+sales_data %>% 
+  filter(Product=="F02000") %>% 
+  ggplot(aes(x = Datum, y = Menge, color = Product)) +
+  geom_line(alpha=0.8) +
+  scale_color_manual(values = palette_light()[[2]]) +
+  labs(title = "Sales Trends Over Time", x = "Date", y = "Sales Volume") +
+  theme_tq() +
+  theme(plot.title = element_text(size = 20))
+```
+
+Product F02000 has a steady sales volume, with a noticeable increase in mid-2021. This increase could be due to a successful marketing campaign or an external market factor affecting demand. After this rise, the sales volumes stabilize at a higher level than before, maintaining a consistent pattern. The lack of significant peaks or dips suggests that the product has stable demand, potentially due to a loyal customer base or consistent market conditions.
+
+
+```{r}
+sales_data %>% 
+  filter(Product=="F03000") %>% 
+  ggplot(aes(x = Datum, y = Menge, color = Product)) +
+  geom_line(alpha=0.8) +
+  scale_color_manual(values = palette_light()[[3]]) +
+  labs(title = "Sales Trends Over Time", x = "Date", y = "Sales Volume") +
+  theme_tq() +
+  theme(plot.title = element_text(size = 20))
+```
+
+The sales data for product F03000 shows a relatively flat trend, indicating stable but low sales volumes compared to F01000 and F02000. There are minor fluctuations, with a slight increase around mid-2022, followed by a return to the usual levels. This consistency suggests that F03000 might cater to a niche market or have less sensitivity to market changes. The slight increase in mid-2022 could have been driven by a short-term promotional effort or a seasonal demand spike.
+
+```{r}
+sales_data %>% 
+  filter(Product=="F04000") %>% 
+  ggplot(aes(x = Datum, y = Menge, color=Product)) +
+  geom_line(alpha=0.8) +
+  scale_color_manual(values = palette_light()[[1]]) +
+  labs(title = "Sales Trends Over Time", x = "Date", y = "Sales Volume") +
+  theme_tq() +
+  theme(plot.title = element_text(size = 20))
+```
+
+For product F04000, the sales volume is generally low, with some noticeable increases around May 2022, likely due to the discount promotion mentioned. This promotion appears to have caused a significant but temporary boost in sales, which quickly reverted to pre-promotion levels. The data does not show any long-term trends or seasonal patterns, suggesting that without promotional activities, F04000 has relatively low market penetration or consumer interest.
+
+##Forecasting Methodology
+
+The ARIMA (AutoRegressive Integrated Moving Average) model is a powerful statistical tool used for time series forecasting. It is particularly useful when data exhibits temporal structures such as trends, seasonality, and noise. ARIMA combines three components—Autoregression (AR), Integration (I), and Moving Average (MA)—to model these aspects effectively. The AR part of the model leverages the relationship between an observation and a certain number of lagged observations, thus capturing the temporal dependencies in the data. The MA component, on the other hand, models the relationship between an observation and a residual error from a moving average model applied to lagged observations. Finally, the Integration component is used to make the data stationary by differencing the data points, which means subtracting the previous value from the current value. This process helps in stabilizing the mean of a time series by removing trends and seasonality.
+
+#ARIMA Components Explained
+Autoregressive (AR) Component: This part of the model specifies that the evolving variable of interest is regressed on its prior values. The AR component is defined by the parameter p, which indicates the number of lagged observations included in the model. Essentially, it measures the influence of past values on the current value. For instance, an AR(1) process would use one lagged value, an AR(2) would use two, and so forth. This component is useful in capturing the persistence in the series, such as how past sales influence future sales in business contexts.
+
+Integrated (I) Component: The 'I' in ARIMA stands for Integrated, which refers to the differencing of raw observations to make the time series stationary. Stationarity is a crucial assumption for ARIMA models as they perform better when the statistical properties of the time series, such as mean and variance, are constant over time. The parameter d, represents the number of differencing passes required to achieve stationarity. If the original data is already stationary, then d=0. The process of differencing helps in eliminating trend and seasonality from the data, making it easier to model and forecast.
+
+Moving Average (MA) Component: The MA part of the model captures the dependency between an observation and a residual error from a moving average model applied to lagged observations. This component is defined by the parameter q, which indicates the number of lagged forecast errors in the prediction equation. It helps in smoothing out the noise in the time series data by averaging out the fluctuations. The MA component is particularly useful in dealing with shocks or irregularities in the data, thus enhancing the model's ability to make accurate predictions.
+
+#Justification for the use of the ARIMA model in this task
+The ARIMA model is favored for its flexibility and adaptability. Unlike other models that require strict assumptions about the data, ARIMA can handle a wide range of time series data, including data with complex patterns and structures. Its ability to incorporate various levels of differencing (I) and to fine-tune the number of autoregressive (AR) and moving average (MA) terms allows it to capture both short-term and long-term dependencies. This makes ARIMA particularly useful for forecasting in scenarios where the data shows clear trends and seasonal patterns, as well as for data that might exhibit irregular fluctuations due to external factors.
+
+In our case, from the exploratory data analysis we have performed above, the data exhibits both seasonality and trend, which can be addressed by the ARIMA model. Hence the choice of the model for forecasting framework.
+
+#Practical Applications and Limitations
+In practice, ARIMA models are widely used in various fields such as economics, finance, supply chain management, and environmental science. For instance, in finance, ARIMA is often employed to forecast stock prices and market indices. In supply chain management, it helps in predicting product demand, which is crucial for inventory management and production planning. However, it is important to note that ARIMA models have limitations. They assume linearity, which might not hold in all cases, especially for complex, non-linear systems. Additionally, ARIMA requires a large amount of historical data to make accurate forecasts, and it may not perform well when the data has structural breaks or is influenced by external shocks that are not captured in the historical data.
+
+In conclusion, while ARIMA is a versatile and powerful tool for time series forecasting, it is essential to carefully analyze the data and validate the model to ensure accurate and reliable forecasts. Understanding the underlying assumptions and limitations of ARIMA models is crucial for making informed decisions based on the forecasts they provide.
+
+## Results
+
+```{r}
+library(tidyr)
+library(purrr)
+# Fit ARIMA model and forecast
+forecast_data <- sales_data %>%
+  group_by(Product) %>%
+  do(forecast = list(forecast(auto.arima(.$Menge), h = 7))) # Forecast for 7 months
+# Extract forecast values
+forecast_sales <- forecast_data %>%
+  mutate(forecast = map(forecast, function(f) {
+    data.frame(
+      Index = seq_along(f$mean),
+      Forecast_values = as.numeric(f$mean),
+      Lower95 = as.numeric(f$lower[, 2]),
+      Upper95 = as.numeric(f$upper[, 2])
+    )
+  })) %>%
+  unnest(forecast) %>%
+  select(Product, Index, Forecast_values, Lower95, Upper95)
+# Display the forecast sales data
+forecast_sales
+```
+
+```{r}
+# Visualize the sales forecasts
+forecast_sales %>%
+  ggplot(aes(x = Index, y = Forecast_values, color = Product)) +
+  geom_line() +
+  scale_color_manual(values = c(palette_light()[[1]], palette_light()[[2]], palette_light()[[3]], palette_light()[[4]])) +
+  labs(title = "Sales Forecasts (June to December 2024)", x = "Month", y = "Forecasted Sales") +
+  theme_tq()
+```
+
+```{r}
+forecast_sales %>%
+  filter(Product=="F01000") %>% 
+  ggplot(aes(x = Index, y = Forecast_values, color = Product)) +
+  geom_line() +
+  scale_color_manual(values = palette_light()[[1]]) +
+  labs(title = "Sales Forecasts (June to December 2024)", x = "Month", y = "Forecasted Sales") +
+  theme_tq()
+```
+
+
+The plot shows the forecasted sales volumes for Product F01000 from June to December 2024. The forecast indicates a sharp increase in sales from around 5,807 units in June to approximately 5,811 units in July, followed by a stable period with forecasted sales slightly decreasing and then leveling off around 5,810 units from August onwards. This suggests a brief period of growth at the beginning of the forecast period, after which the sales volumes are expected to stabilize at a slightly lower level, indicating consistent market demand for Product F01000 with no significant fluctuations expected for the rest of the year.
+
+
+```{r}
+forecast_sales %>%
+  filter(Product=="F02000") %>% 
+  ggplot(aes(x = Index, y = Forecast_values, color = Product)) +
+  geom_line() +
+  scale_color_manual(values = palette_light()[[2]]) +
+  labs(title = "Sales Forecasts (June to December 2024)", x = "Month", y = "Forecasted Sales") +
+  theme_tq()
+```
+
+The plot shows the forecasted sales volumes for Product F02000 from June to December 2024. The forecasts for product F02000 shows a consistent increase in sales over time.
+
+```{r}
+forecast_sales %>%
+  filter(Product=="F03000") %>% 
+  ggplot(aes(x = Index, y = Forecast_values, color = Product)) +
+  geom_line() +
+  scale_color_manual(values = palette_light()[[3]]) +
+  labs(title = "Sales Forecasts (June to December 2024)", x = "Month", y = "Forecasted Sales") +
+  theme_tq()
+```
+The plot shows the forecasted sales volumes for Product F03000 from June to December 2024. The forecast indicates a sharp increase in sales from around 18201 units in June to approximately 18300 units in July, followed by a stable period with forecasted sales slightly decreasing and then leveling off around 18280 units from August onward. This suggests a brief period of growth at the beginning of the forecast period, after which the sales volumes are expected to stabilize at a slightly lower level, indicating consistent market demand for Product F03000 with no significant fluctuations expected for the rest of the year.
+
+```{r}
+forecast_sales %>%
+  filter(Product=="F04000") %>% 
+  ggplot(aes(x = Index, y = Forecast_values, color = Product)) +
+  geom_line() +
+  scale_color_manual(values = palette_light()[[8]]) +
+  labs(title = "Sales Forecasts (June to December 2024)", x = "Month", y = "Forecasted Sales") +
+  theme_tq()
+```
+
+The plot shows the forecasted sales volumes for Product F04000 from June to December 2024. The forecast indicates a sharp increase in sales from around 5010 units in June to approximately 5045 units in July, followed by a stable period with forecasted sales slightly decreasing and then leveling off around 5034 units from August onward. This suggests a brief period of growth at the beginning of the forecast period, after which the sales volumes are expected to stabilize at a slightly lower level, indicating consistent market demand for Product F04000 with no significant fluctuations expected for the rest of the year.
+
+## Revenue forecast
+
+```{r}
+# Assuming we have the unit prices for all our products
+unit_prices <- data.frame(Product = c("F01000", "F02000", "F03000", "F04000"),
+                          Price = c(10, 15, 18, 13))
+# Calculate forecasted revenue
+revenue_forecast <- forecast_sales %>%
+  left_join(unit_prices, by = "Product") %>%
+  mutate(Revenue = Forecast_values * Price)
+# Display the revenue forecast in a table
+revenue_forecast %>%
+  select(Product, Index, Revenue) %>%
+  arrange(Product, Index)
+```
+
+## Conclusion
+
+In this forecasting analysis, we utilized the ARIMA model to predict sales volumes for four products (F01000, F02000, F03000, and F04000) from June to December 2024. The analysis revealed distinct trends for each product, reflecting their unique market behaviors. For instance, F01000 showed a brief increase followed by stabilization, suggesting consistent demand. F02000 and F03000 exhibited more stable forecasts, while F04000 had higher initial volumes, likely influenced by past promotional activities. Overall, the ARIMA model provided valuable insights, indicating that while some products are expected to maintain steady sales, others may experience slight variations. This forecast can help the company in planning production, inventory, and sales strategies, ensuring they are well-prepared to meet expected market demands and optimize their operations accordingly.
