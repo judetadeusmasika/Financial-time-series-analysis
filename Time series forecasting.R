@@ -160,7 +160,7 @@ ggplot() +
     y = "Number of Passengers"
   ) +
   scale_color_manual(values = c(
-    "Training" = "#12355B", 
+    "Training" = "#334252", 
     "Testing" = "#D72638", 
     "TES Additive Predicted" = "#FF6347", 
     "TES Multiplicative Predicted" = "#32CD32",
