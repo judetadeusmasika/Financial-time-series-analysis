@@ -1,0 +1,527 @@
+---
+title: "Time Series and QDV models"
+output: pdf_document
+date: "2024-11-08"
+latex_engine: xalatex
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+# PART 1: Time series and Autocorrelation
+
+```{r}
+# load the required libraries for this part
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(Ecdat)
+library(AER)
+```
+
+## The GoldSilver data preview
+
+```{r}
+# load the time series data into the program
+data("GoldSilver")
+# display the first 10 observations from the data
+GoldSilver %>% 
+  head(n=10)
+```
+
+## 1. Exploratory Data Analysis
+
+### a) The question to be answered.
+
+### Is there any relationship or correlation between the gold and silver spot prices over this period?
+
+The question of whether a relationship exists between gold and silver spot prices over time is crucial for understanding how these two precious metals may influence or reflect one another in the market. Since both metals are commonly used as investment hedges against economic uncertainty and inflation, examining their correlation can provide insights into whether they move in tandem or respond differently to market pressures. By analyzing this relationship, we can determine if changes in gold prices predict similar shifts in silver prices (or vice versa), which could imply a level of interdependence or shared underlying drivers. Identifying such a correlation could also be valuable for investors and economists, as it may offer predictive insights or confirm gold and silver as complementary assets in portfolio management strategies.
+
+### b) Cite the data
+
+### The source of the data is; 
+
+https://www.cambridge.org/us/academic/subjects/economics/econometrics-statistics-and-mathematical-economics/time-series-models-business-and-economic-forecasting-2nd-edition
+
+Its description is as follows;
+
+A daily multiple time series from 1977-12-30 to 2012-12-31 (of class "zoo" with "Date" index).
+
+gold: spot price for gold.
+
+silver: spot price for silver.
+
+### References
+
+Franses, P.H., van Dijk, D. and Opschoor, A. (2014). Time Series Models for Business and Economic Forecasting, 2nd ed. Cambridge, UK: Cambridge University Press.
+
+
+### c) Check for completeness of the data
+
+```{r}
+# check for missing values in the data
+colSums(is.na(GoldSilver))
+```
+
+The dataset has no missing values.
+
+### d) Data description
+
+```{r}
+# summary statistics of the data
+summary(GoldSilver)
+```
+
+The summary statistics for gold and silver spot prices reveal significant variation over the study period. Gold prices range from a minimum of $97.45 to a maximum of $1,043.89, with a median of $215.16 and a mean of $287.37. This distribution suggests a general upward trend in gold prices over time, likely driven by inflation, economic uncertainty, and its value as a safe-haven asset. Silver prices show an even wider range, from $137.30 to a maximum of $1,901.90, with a median of $255.40 and a mean of $376.70. The higher maximum and greater spread in silver prices indicate that silver experienced more extreme price fluctuations than gold, potentially due to its dual role in both investment and industrial applications. Both metals display increasing price levels over the years, which could be attributed to their roles in investment portfolios and economic cycles impacting demand.
+
+```{r}
+library(tseries)
+library(zoo)
+# histogram of gold and silver variables
+ggplot(data = GoldSilver, aes(x = gold)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "gold", alpha = 0.5) + geom_density(color = "darkgoldenrod4", size = 1) +
+  labs(title = "Histogram and Density of Gold Spot Prices", x = "Gold Spot Price", y = "Density") +
+  theme_bw()
+```
+
+The daily gold spot prices show a generally positive skewness, indicating that, while most prices tend to cluster around a central value, there are occasional high values that pull the distribution’s tail to the right. This skewness reflects the historical role of gold as a "safe-haven" asset, where investors flock during periods of economic uncertainty, such as financial crises or inflationary periods, leading to sudden price spikes. Such spikes in the data suggest gold’s sensitivity to macroeconomic factors, as it often experiences sharp upward movements when investors seek stability against market volatility. The positive skewness in gold prices may, therefore, reflect periods of heightened demand in response to adverse economic events.
+
+```{r}
+ggplot(data = GoldSilver, aes(x = silver)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightgray", alpha = 0.5) +geom_density(color = "gray40", size = 1) +
+  labs(title = "Histogram and Density of Silver Spot Prices", x = "Silver Spot Price", y = "Density") +
+  theme_bw()
+```
+
+Silver spot prices also exhibit positive skewness, although with generally higher volatility compared to gold, which is characteristic of silver’s dual role as both an investment metal and an industrial commodity. Unlike gold, silver is heavily influenced by industrial demand, meaning that its price spikes may be linked to both economic uncertainty and changes in industrial activity. The positive skewness seen in silver prices is punctuated by sharp, sporadic increases, possibly due to both market speculation and shifts in industrial production, particularly during periods of economic recovery or expansion. This dual nature of silver means that, while it shares some safe-haven qualities with gold, its price behavior also reflects the ebbs and flows of economic cycles.
+
+```{r}
+# Boxplot of Gold and Silver Prices
+data_long <- as.data.frame(GoldSilver) %>%
+  pivot_longer(cols = c(gold, silver), names_to = "Metal", values_to = "Price")
+
+ggplot(data_long, aes(x = Metal, y = Price, fill = Metal)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Gold and Silver Spot Prices", x = "Metal", y = "Spot Price") + scale_fill_manual(values = c("gold" = "gold", "silver" = "gray")) +
+  theme_bw()
+```
+
+The boxplots for gold and silver spot prices visually reinforce the insights observed in the histograms, highlighting each metal’s price distribution and variability over time. In both boxplots, the median line reflects the central tendency, with gold's median lower than silver's, indicating gold's generally more stable price range. The interquartile range (IQR) of silver is wider than that of gold, signaling that silver prices are more volatile and dispersed compared to gold. The boxplots also show a higher frequency of outliers, particularly for silver, which are evident as individual points outside the whiskers and represent the sharp price spikes caused by factors like economic events or speculative trading. These outliers confirm the occasional extreme values captured in the histogram’s rightward skew, with silver displaying more prominent price deviations. Together, these boxplots emphasize the broader price range and increased fluctuation of silver, aligning with its sensitivity to both investment and industrial demand.
+
+```{r}
+data("GoldSilver")
+gold_prices <- coredata(GoldSilver$gold)    # Extracting gold prices
+silver_prices <- coredata(GoldSilver$silver) # Extracting silver prices
+
+# Calculate the cross-correlation function (CCF) between gold and silver prices
+ccf_gold_silver <- ccf(gold_prices, silver_prices, lag.max = 30, plot = TRUE,main = "Cross-Correlation of Gold and Silver Prices")
+```
+
+```{r}
+print(ccf_gold_silver)
+```
+
+The cross-correlation function (CCF) between gold and silver prices shows a strong positive relationship over the specified 30-lag range. The autocorrelations of the two series are consistently high, starting at 0.820 at lag -30 and gradually increasing to a peak of 0.853 at lag 0, before slightly declining. This suggests that past gold prices and past silver prices are highly correlated, with the highest correlation occurring when both series are aligned (lag 0), indicating a strong synchronous movement between the two metals' prices. The relatively stable values across the lags, both before and after lag 0, suggest that the correlation remains relatively consistent over time, implying a persistent relationship between gold and silver prices. This finding suggests that both markets are influenced by similar factors, possibly reflecting overall commodity market trends or shared economic drivers.
+
+## 2. Data Preprocessing
+
+### a) Time series, ACF and PACF plots
+
+```{r}
+library(forecast)
+# perform the adf test
+adf_gold <-adf.test(gold_prices)
+print(adf_gold)
+```
+
+
+```{r}
+# Time series plots ACF and PACF for gold
+tsdisplay(gold_prices, main = "Gold Price: Time Series, ACF, and PACF")
+```
+
+The time series plot of gold prices exhibits clear signs of non-stationarity. The observations appear to follow each other over time, indicating serial dependence, where past values influence future ones. A noticeable upward trend suggests that the prices have been increasing over the long term, possibly reflecting factors like inflation or global economic changes. Additionally, the presence of seasonality is evident, with recurring patterns that could be linked to specific events, such as market cycles or geopolitical factors influencing gold prices. The increasing variance over time, where fluctuations seem to widen as time progresses, further indicates non-stationarity (p-value greater than 5% level of significance), as the price volatility grows. Combined with the results from the ACF and PACF plots, which suggest persistent correlation across lags. 
+
+```{r}
+adf_silver <-adf.test(silver_prices)
+print(adf_silver)
+```
+
+
+```{r}
+# Time series plots ACF and PACF for silver
+tsdisplay(silver_prices, main = "Silver Price: Time Series, ACF, and PACF")
+```
+
+Similar to gold prices, the time series plot of silver prices reveals clear signs of non-stationarity. The observations show serial dependence, where past prices influence future ones, and there is a visible upward trend in the data, indicating long-term increases in silver prices, likely driven by broader economic factors. Seasonality is also present, suggesting recurring patterns or fluctuations at certain intervals, which may reflect market cycles or specific events influencing the silver market. Moreover, the variance of the series appears to increase over time, signaling higher price volatility as the series progresses. The Augmented Dickey-Fuller (ADF) test further confirms the non-stationary nature of silver prices, with a p-value greater than the 5% significance level, meaning we fail to reject the null hypothesis of a unit root, reinforcing the conclusion that silver prices are non-stationary. 
+
+
+### b) Differencing
+
+```{r}
+# Differencing the gold and silver price time series
+gold_diff <- diff(gold_prices, differences = 1)
+silver_diff <- diff(silver_prices, differences = 1)
+```
+
+
+```{r}
+# perform adf test to confirm stationarity
+# for gold
+adf_gold <-adf.test(gold_diff)
+print(adf_gold)
+```
+
+
+```{r}
+# for silver
+adf_silver <-adf.test(silver_diff)
+print(adf_silver)
+```
+
+
+```{r}
+# display the time series, ACF and PACF plots once again
+#gold
+tsdisplay(gold_diff, main = "Gold Price difference: Time Series, ACF and PACF")
+```
+
+After performing differencing on the gold price time series, the series became stationary, as evidenced by the results of the Augmented Dickey-Fuller (ADF) test, which now showed a p-value below the 5% significance level, allowing us to reject the null hypothesis of a unit root. The differencing effectively removed the trend and made the series fluctuate around a constant mean, removing any long-term upward or downward movements. The autocorrelation and partial autocorrelation functions (ACF and PACF) also confirmed the stationarity, as the correlations decayed quickly to zero, indicating no persistent relationships between the lagged values. This suggests that the time series of gold prices no longer exhibits significant serial dependence, making it suitable for further modeling and analysis.
+
+```{r}
+#silver
+tsdisplay(silver_diff, main = "Silver price difference: Time series, ACF and PACF")
+```
+
+Similarly, after differencing the silver price time series, it too became stationary, with the ADF test indicating that the null hypothesis of non-stationarity could be rejected, thanks to a p-value below the 5% threshold. The differencing removed the underlying trend and seasonality, stabilizing the mean of the series. The ACF and PACF plots showed a rapid decay in autocorrelations, signifying that the differenced silver prices no longer exhibit the persistent dependence seen in the raw series. The reduction in autocorrelation and the stationarity confirmed that differencing was successful in addressing the non-stationary characteristics of the silver prices, enabling more reliable modeling and analysis moving forward.
+
+## 3. Feature generation, model testing and forecasting
+
+### a) Fit the Autoregressive Model
+
+```{r}
+# the best AR model for gold and silver is AR(5) and AR(4) respectively
+# Fit AR(5) model using the original (non-differenced) gold prices
+ar_gold <- arima(gold_diff, order = c(5, 0, 0))
+summary(ar_gold)
+```
+
+The best model selected for the gold variable was AR(5).
+
+The AR(5) model for the differenced gold prices includes five autoregressive coefficients (ar1 to ar5), with values ranging from 0.0041 to 0.0214, and an intercept of 0.0894. The standard errors of the coefficients are relatively small (around 0.0105), indicating the model's coefficients are estimated with reasonable precision. The model has an estimated residual variance (sigma^2) of 19.39 and a log-likelihood of -26492.29, which leads to an AIC value of 52998.58. This suggests a relatively high complexity of the model for the given data. The training set error measures show a very small mean error (ME) close to zero, which is expected from a well-fit model. The RMSE (4.4) and MAE (2.42) indicate moderate error in predicting the differenced gold prices. The MAPE value is infinite (Inf), which suggests that there are some predictions with very small actual values leading to very large percentage errors. The MASE value of 0.6683 indicates the model's error relative to a naive forecast, suggesting it performs moderately well. The ACF1 value of 0.0002 is close to zero, indicating minimal autocorrelation in the residuals, which is a good sign of model adequacy.
+
+```{r}
+# Fit AR(5) model for silver prices
+ar_silver <- arima(silver_diff, order = c(4, 0, 0))
+summary(ar_silver)
+```
+
+The best model selected for the silver variable was AR(4).
+
+The AR(4) model for the differenced silver prices includes four autoregressive coefficients (ar1 to ar4) with values ranging from 0.0168 to 0.1006, and an intercept of 0.0960. The standard errors of the coefficients are 0.0105, indicating good precision in the estimates. The model has an estimated residual variance (sigma^2) of 128.2, and a log-likelihood value of -35114.95, leading to an AIC value of 70241.89. This indicates that the model may be overly complex for the data. The training set error measures show a small mean error (ME), which is positive and close to zero. However, the RMSE (11.32) and MAE (5.81) values suggest that the model has substantial error when predicting the differenced silver prices. The MAPE value is infinite (Inf), which suggests that there are some predictions with very small actual values leading to extreme percentage errors. The MASE value of 0.718 indicates the model is performing moderately better than a naive forecast. The ACF1 value of -0.0002 is close to zero, which implies minimal autocorrelation in the residuals, suggesting that the model adequately captures the time series structure.
+
+### b) Autocorrelation
+
+```{r}
+# test for autocorrelation
+Box.test(residuals(ar_gold), lag = 20, type = "Ljung-Box")
+acf(ar_gold$residuals, main = "ACF of the residuals of the AR_GOLD model")
+```
+
+null hypothesis: there is autocorrelation
+alternative hypothesis: there is no autocorrelation
+
+The Ljung box test had a p-value less than 5% level of significance. Testing with the null hypothesis stating that there is autocorrelation in the residuals, the hypothesis is rejected in favor of the alternative hypothesis which says there is no autocorrelation.
+
+```{r}
+Box.test(residuals(ar_silver), lag = 20, type = "Ljung-Box")
+acf(ar_silver$residuals, main ="ACF of the residuals of the AR_SILVER model")
+```
+
+null hypothesis: there is autocorrelation
+alternative hypothesis: there is no autocorrelation
+
+The p-value is less than 5% level of significance for the Ljung box test. The null hypothesis is rejected and thus there is no autocorrelation among the residuals.
+
+### c) ARDL(p,q) model
+
+```{r}
+#install.packages("dynlm")
+library(dynlm)
+# First, let's create the lagged values for both gold and silver
+gold_lags <- data.frame(
+  gold_diff = gold_diff,
+  lag1 = lag(gold_diff, 1),
+  lag2 = lag(gold_diff, 2),
+  lag3 = lag(gold_diff, 3),
+  lag4 = lag(gold_diff, 4),
+  lag5 = lag(gold_diff, 5)
+)
+
+silver_lags <- data.frame(
+  silver_diff = silver_diff,
+  lag1 = lag(silver_diff, 1),
+  lag2 = lag(silver_diff, 2),
+  lag3 = lag(silver_diff, 3),
+  lag4 = lag(silver_diff, 4),
+  lag5 = lag(silver_diff, 5)
+)
+# Remove the first few rows with NA values resulting from lagging
+gold_lags <- na.omit(gold_lags)
+silver_lags <- na.omit(silver_lags)
+# Ensure both datasets have the same number of rows
+common_length <- min(nrow(gold_lags), nrow(silver_lags))
+gold_lags <- gold_lags[1:common_length, ]
+silver_lags <- silver_lags[1:common_length, ]
+# Now fit the ARDL model with the lagged values
+ardl_model <- dynlm(gold_lags$gold_diff ~ gold_lags$lag1 + gold_lags$lag2 + gold_lags$lag3 + gold_lags$lag4 + gold_lags$lag5 +silver_lags$lag1 + silver_lags$lag2 + silver_lags$lag3 + silver_lags$lag4 + silver_lags$lag5)
+# Summary of the ARDL model
+summary(ardl_model)
+```
+
+The ARDL model shows that the coefficients for the lagged values of both gold and silver prices have varying statistical significance. Specifically, the intercept, gold lag 4, and silver lags 1 and 4 are statistically significant at the 5% level, with p-values of 0.0445, 0.00046, 0.0297, and 0.0197, respectively. The other lagged terms for both gold and silver prices do not show significant effects, with p-values greater than 0.05. The overall model has a low R-squared, indicating that it explains only a small proportion of the variation in the dependent variable, with an F-statistic significant at the 5% level.
+
+```{r}
+# Ljung box test
+Box.test(residuals(ardl_model), lag = 20, type = "Ljung-Box")
+# Check autocorrelation in residuals
+acf(residuals(ardl_model))
+```
+
+From the ARDL(p,q) model, the residuals are not correlated. This is proven with the Ljung box test with a p-value less than 5%. Thus, the null hypothesis is rejected.
+
+## 4. Summary of the findings
+
+The analysis reveals that the ARDL model, which includes lagged values of both gold and silver prices, has limited explanatory power as indicated by the low R-squared value. Despite the overall significance of the model (with an F-statistic showing p-value < 0.05), only a few lagged terms are statistically significant, specifically gold lag 4 and silver lags 1 and 4, while the rest do not demonstrate meaningful relationships with the dependent variable. Given the results, the ARIMA model, which showed better model fit in terms of lower AIC and residual diagnostics, appears to be the more effective model for capturing the dynamics of the gold and silver prices. The ARIMA model provided more reliable predictions with quicker decay in autocorrelations of residuals, whereas the ARDL model’s explanatory power remains weak, suggesting that the simpler ARIMA model may be more appropriate for forecasting in this case.
+
+## 5. Limitations and Improvements
+
+One limitation faced in the analysis is the potential degree of freedom constraint due to the high number of lags included in the ARDL model, which may dilute the statistical power of individual coefficients. A key improvement could involve testing for reverse causality, as price movements in gold and silver could be jointly determined, warranting an exploration of a Vector Autoregressive (VAR) model. Conducting a Granger causality test would help establish whether gold prices influence silver prices (or vice versa) or if there is bidirectional causality, supporting a VAR approach if causation is found in both directions.
+
+Additionally, including a moving average (MA) component might improve model fit, especially if residuals show autocorrelation that persists. Checking the autocorrelation function (ACF) for rapid decay versus slow decline in both ACF and partial ACF (PACF) could indicate whether an MA or ARMA specification would be preferable. Further, if seasonality appears in the time series data, incorporating a seasonal adjustment in the model could capture periodic trends more effectively. Each model improvement should be validated with model selection criteria, such as AIC or BIC, with declining values suggesting better model fit. Statistical verification of such choices will ensure that the chosen model aligns with the underlying data patterns, enhancing both robustness and predictive accuracy.
+
+# PART 2: QDV Models
+
+## Binary dependent variables
+
+### The Affairs data preview
+
+```{r}
+# load the data into the program
+data("Affairs")
+# display the first 10 observations of the loaded data
+Affairs %>% 
+  head(n=5)
+```
+
+## a) Data discussion and Question
+
+Infidelity data, known as Fair’s Affairs. Cross-section data from a survey conducted by Psychology
+Today in 1969.
+
+### The description of the variables present in the data is as follows;
+
+A data frame containing 601 observations on 9 variables.
+affairs numeric. How often engaged in extramarital sexual intercourse during the past year? 0 =
+none, 1 = once, 2 = twice, 3 = 3 times, 7 = 4–10 times, 12 = monthly, 12 = weekly, 12 = daily.
+
+gender factor indicating gender.
+
+age numeric variable coding age in years: 17.5 = under 20, 22 = 20–24, 27 = 25–29, 32 = 30–34,
+37 = 35–39, 42 = 40–44, 47 = 45–49, 52 = 50–54, 57 = 55 or over.
+
+yearsmarried numeric variable coding number of years married: 0.125 = 3 months or less, 0.417
+= 4–6 months, 0.75 = 6 months–1 year, 1.5 = 1–2 years, 4 = 3–5 years, 7 = 6–8 years, 10 =
+9–11 years, 15 = 12 or more years.
+
+children factor. Are there children in the marriage?
+
+religiousness numeric variable coding religiousness: 1 = anti, 2 = not at all, 3 = slightly, 4 =
+somewhat, 5 = very.
+
+education numeric variable coding level of education: 9 = grade school, 12 = high school graduate,
+14 = some college, 16 = college graduate, 17 = some graduate work, 18 = master’s degree, 20
+= Ph.D., M.D., or other advanced degree.
+
+occupation numeric variable coding occupation according to Hollingshead classification (reverse
+numbering).
+
+rating numeric variable coding self rating of marriage: 1 = very unhappy, 2 = somewhat unhappy,
+3 = average, 4 = happier than average, 5 = very happy
+
+### The source of the data
+
+https://pages.stern.nyu.edu/~wgreene/Text/tables/tablelist5.htm
+
+### References
+
+Greene, W.H. (2003). Econometric Analysis, 5th edition. Upper Saddle River, NJ: Prentice Hall.
+Fair, R.C. (1978). A Theory of Extramarital Affairs. Journal of Political Economy, 86, 45–61.
+
+### The question to be answered
+
+What factors are associated with the likelihood of engaging in extramarital affairs?
+
+By converting the affairs variable into a binary outcome (e.g., 0 = no affairs, 1 = had at least one affair), a regression model can be applied to examine how individual characteristics—such as age, years married, presence of children, religiousness, education, occupation, and self-rating of marriage—affect the probability of someone engaging in extramarital affairs. This analysis could provide insights into the role of demographic and relationship factors in predicting the likelihood of such behavior.
+
+## b) Data description and explorartory data analysis
+
+```{r}
+library(GGally)
+# Summary statistics for all variables
+summary(Affairs)
+```
+
+The summary statistics reveal several key insights into the dataset. On average, individuals have engaged in extramarital affairs about 1.46 times, although most report no affairs (median and 1st/3rd quartiles are 0). Gender is roughly balanced, with a slight majority being female. The mean age is 32.5 years, with a range from 17.5 to 57, and most respondents have been married around 8 years, though this varies significantly (median = 7, max = 15). A majority (71.5%) have children. Religiousness is relatively varied, averaging around "somewhat religious" (3 on a scale of 1 to 5). Educational attainment is high on average, with many having attended some college or higher (median = 16). Occupations span across classes, with an average level at 4 (on a 1-7 scale, with 7 being higher). Marital ratings are generally positive, with a mean of 3.93, indicating most are at least "average" in happiness. This dataset shows a diverse range in age, marital duration, education, and marital satisfaction, allowing for detailed analysis of factors influencing extramarital affairs.
+
+```{r}
+# Histogram of numeric variables
+numeric_vars <- c("affairs", "age", "yearsmarried", "religiousness", "education", "occupation", "rating")
+ggplot(data = Affairs, aes(x = affairs)) +
+  geom_histogram(bins = 25, fill = "red", alpha = 0.5)  +
+  labs(title = "Histogram of the affairs variable", x = "affairs", y = "Frequency") +
+  theme_bw()
+```
+
+The histogram of the affairs variable indicates that a significant majority of individuals in the dataset report zero extramarital affairs, suggesting that extramarital involvement is relatively rare within this group. For those who do engage in affairs, the frequency varies, with only a small proportion reporting affairs occurring on a daily, weekly, or monthly basis. This skewed distribution highlights that while some individuals have occasional or frequent affairs, they represent a minority compared to those who do not engage in any.
+
+```{r}
+ggplot(data = Affairs, aes(x = rating)) +
+  geom_histogram(bins = 25, fill = "blue", alpha = 0.5)  +
+  labs(title = "Histogram of the Rating varible", x = "Rating", y = "Frequency") +
+  theme_bw()
+```
+
+The histogram of the rating variable shows that most marriages in the dataset are rated as very happy, with the majority of responses clustered around the higher end of the happiness scale. Only a small fraction of individuals rate their marriages as very unhappy, suggesting that marital satisfaction is generally high among the participants. This pattern implies a positive outlook on marital happiness for most respondents, with dissatisfaction being relatively uncommon.
+
+```{r}
+# Boxplot of Affairs by Gender
+ggplot(Affairs, aes(x = gender, y = affairs)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Boxplot of Affairs by Gender", x = "Gender", y = "Number of Affairs")
+```
+
+The boxplot of affairs by gender indicates that males tend to report a higher frequency of extramarital affairs compared to females, with a wider range and more outliers among male respondents. This suggests that males in the dataset are more likely to engage in affairs, and the variation in affairs is greater for males than for females, who generally report fewer affairs. This gender difference in extramarital involvement highlights a notable trend within the sample.
+
+```{r}
+# Boxplot of Affairs by Years Married
+ggplot(Affairs, aes(x = factor(yearsmarried), y = affairs)) +
+  geom_boxplot(fill = "lightgreen") +
+  labs(title = "Boxplot of Affairs by Years Married", x = "Years Married", y = "Number of Affairs")
+```
+
+The boxplot of affairs by years married reveals that as the length of marriage increases, the frequency of reported extramarital affairs tends to rise. Marriages of longer duration show higher median values and a greater spread in the number of affairs, suggesting a possible link between years married and likelihood of extramarital involvement. This trend may indicate that relationship duration could play a role in influencing affair frequency.
+
+```{r}
+# Scatterplot of Age vs. Affairs
+ggplot(Affairs, aes(x = age, y = affairs)) +
+  geom_point(alpha = 0.6, color = "blue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Scatterplot of Age vs Affairs", x = "Age", y = "Number of Affairs")
+```
+
+
+The positive trend between age and number of affairs suggests that as individuals get older, they tend to report a higher number of affairs. This relationship implies that age may be associated with an increased likelihood of extramarital involvement, possibly due to factors like life experiences or evolving personal circumstances as people age.
+
+```{r}
+# filter out numeric variables for correlation analysis
+data_numeric <- Affairs %>% select(all_of(numeric_vars))
+correlation_matrix <- cor(data_numeric, use = "complete.obs");correlation_matrix
+# Correlation Plot
+ggcorr(data_numeric, label = TRUE, label_round = 2, low = "blue", high = "red") +
+  labs(title = "Correlation Plot of Numeric Variables")
+
+```
+
+The correlation matrix highlights relationships among the key variables in the dataset. Notably, the variable "affairs" is negatively correlated with "rating" (-0.28), indicating that as marital satisfaction increases, the likelihood of extramarital affairs tends to decrease. There is also a modest positive correlation between "yearsmarried" and "affairs" (0.19), suggesting that the longer someone is married, the more likely they may engage in extramarital activities. Age and years married have a strong positive correlation (0.78), which is expected as both increase together over time. "Education" and "occupation" have a moderate positive correlation (0.53), implying that higher education is often associated with higher occupational classifications. Overall, marital satisfaction (rating) is inversely associated with age, years married, and affairs, while religiousness has a slight negative correlation with affairs (-0.14), suggesting that higher religiousness might be linked to lower engagement in extramarital activities.
+
+```{r}
+# Proportion of Children in Marriage
+table(Affairs$children) / nrow(Affairs) * 100
+barplot(prop.table(table(Affairs$children)) * 100,
+        main = "Proportion of Children in Marriage",
+        ylab = "Percentage",
+        xlab = "Children (Yes/No)",
+        col = "orange")
+```
+
+
+The bar plot shows that the majority of marriages include children, with approximately 70% of couples having at least one child. This suggests that having children is common among the surveyed marriages. Only a minority, around 30%, report having no children, indicating that child-rearing is a prevalent characteristic in these relationships.
+
+## c) Linear Probability Model, Probit Model and Logit Model
+
+```{r}
+library(MASS)
+# transform the dependent variable to binary
+Affairs$affairs <-ifelse(Affairs$affairs>0,1,0)
+```
+
+### i) Linear Probability model
+
+```{r}
+# Linear Probability Model (LPM)
+lpm_model <- lm(affairs ~ age + yearsmarried + factor(gender) + religiousness + factor(children)+ education + rating, data = Affairs)
+summary(lpm_model)
+```
+
+### ii) Probit model
+
+```{r}
+# Probit Model
+probit_model <- glm(affairs~ age + yearsmarried + factor(gender) + religiousness + factor(children) + education + rating, family = binomial(link = "probit"), data = Affairs)
+summary(probit_model)
+```
+
+### iii) Logit model
+
+```{r}
+# Logit Model
+logit_model <- glm(affairs ~ age + yearsmarried + factor(gender) + religiousness + factor(children) + education + rating, 
+                   family = binomial(link = "logit"), data = Affairs)
+summary(logit_model)
+```
+
+### Model Comparison by Fit Metrics:
+
+LPM: The adjusted R-Squared of 0.0957 indicates that only about 9.57% of the variance in the affairs variable is explained by the predictors. This is generally quite low, and since LPM can predict probabilities outside the [0,1] range, it may not be ideal for binary outcomes.
+
+Probit Model: The AIC is 626.5, with a residual deviance of 610.5. The log-likelihood for this model is better than LPM and aligns well for binary classification.
+
+Logit Model: The AIC of 625.7 is slightly lower than that of the Probit model, and it has a similar residual deviance of 609.7, indicating a marginally better fit.
+
+### Final Model Choice
+
+Logit Model: Based on AIC and likelihood criteria, the Logit model marginally outperforms the Probit model and significantly outperforms the Linear Probability Model, making it the best choice for this analysis.
+
+Marginal Effects in the Logit Model: Calculating marginal effects helps us understand the change in probability of the dependent variable (affairs) due to a one-unit change in each predictor. In Logit models, Average Marginal Effects (AME) or Marginal Effects at the Mean (MEM) are commonly reported.
+
+```{r}
+#install.packages("margins")
+library(margins)
+logit_margins <- margins(logit_model)
+summary(logit_margins)
+```
+
+The average marginal effects (AME) from the Logit model show how each factor influences the likelihood of having an affair, accounting for all other variables. Age is associated with a slight decrease in affair probability, with each additional year reducing this likelihood by 0.73% (p = 0.0147). This suggests that older individuals are marginally less likely to engage in affairs. Having children appears to increase the probability of an affair by 6.11%, but this effect lacks statistical significance (p = 0.1715), indicating no strong evidence for an impact. Education has a minimal positive effect on affair likelihood, which is not statistically significant (p = 0.5001). Gender shows that males have a 5.28% higher chance of having an affair than females, though this effect is also not statistically significant (p = 0.1576).
+
+Significant findings arise for marriage satisfaction and religiousness. Higher marriage satisfaction (rating) reduces the likelihood of an affair by 7.83% (p < 0.001), strongly supporting the hypothesis that satisfaction in marriage decreases affair probability. Additionally, higher levels of religiousness decrease affair likelihood by 5.42% (p = 0.0002), suggesting that more religious individuals are less prone to affairs. Years married is positively associated with affair likelihood, with each additional year increasing the probability by 1.59% (p = 0.0025), indicating that longer marriages might face higher risks of affairs. Overall, satisfaction in marriage and religiousness emerge as significant deterrents against affairs, aligning well with the initial hypothesis that these factors lower affair likelihood.
+
+```{r}
+# Predicted probabilities
+lpm_pred <- ifelse(predict(lpm_model, type = "response") > 0.5, 1, 0)
+probit_pred <- ifelse(predict(probit_model, type = "response") > 0.5, 1, 0)
+logit_pred <- ifelse(predict(logit_model, type = "response") > 0.5, 1, 0)
+
+# Confusion matrices and accuracy for each model
+lpm_conf_matrix <- table(data$affairs, lpm_pred)
+probit_conf_matrix <- table(data$affairs, probit_pred)
+logit_conf_matrix <- table(data$affairs, logit_pred)
+```
+
+
+### Hypothesis Satisfaction and Conclusion
+
+The Logit model, with negative coefficients for religiousness and rating (marital satisfaction), aligns well with our initial hypothesis that greater religious commitment and higher marriage satisfaction reduce the likelihood of an affair.
